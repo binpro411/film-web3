@@ -591,7 +591,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
         </div>
       </div>
 
-      {/* Series Modal */}
+      {/* Series Modal - HIỂN THỊ Ở TRÊN CÙNG */}
       <SeriesModal
         isOpen={isSeriesModalOpen}
         onClose={() => setIsSeriesModalOpen(false)}
@@ -602,7 +602,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
         }}
       />
 
-      {/* Episode Modal */}
+      {/* Episode Modal - HIỂN THỊ Ở TRÊN CÙNG */}
       <EpisodeModal
         isOpen={isEpisodeModalOpen}
         onClose={() => setIsEpisodeModalOpen(false)}
@@ -640,7 +640,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
   );
 };
 
-// Series Modal Component
+// Series Modal Component - HIỂN THỊ Ở TRÊN CÙNG
 const SeriesModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -775,276 +775,289 @@ const SeriesModal: React.FC<{
   ];
 
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="bg-gray-900 rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-700">
-        <div className="p-6 border-b border-gray-700">
-          <h2 className="text-2xl font-bold text-white">
-            {series ? 'Chỉnh Sửa Series' : 'Thêm Series Mới'}
-          </h2>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Tên Tiếng Anh
-              </label>
-              <input
-                type="text"
-                value={formData.title}
-                onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
+    <div className="fixed inset-0 z-60 bg-black/80 backdrop-blur-sm">
+      {/* CONTAINER HIỂN THỊ Ở TRÊN CÙNG */}
+      <div className="h-full overflow-y-auto">
+        <div className="min-h-full flex items-start justify-center p-4 pt-8">
+          <div className="bg-gray-900 rounded-2xl max-w-4xl w-full border border-gray-700 my-8">
+            <div className="p-6 border-b border-gray-700">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-white">
+                  {series ? 'Chỉnh Sửa Series' : 'Thêm Series Mới'}
+                </h2>
+                <button
+                  onClick={onClose}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Tên Tiếng Việt
-              </label>
-              <input
-                type="text"
-                value={formData.title_vietnamese}
-                onChange={(e) => setFormData(prev => ({ ...prev, title_vietnamese: e.target.value }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-          </div>
+            <form onSubmit={handleSubmit} className="p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Tên Tiếng Anh
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.title}
+                    onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Mô Tả
-            </label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-              rows={4}
-              className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Tên Tiếng Việt
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.title_vietnamese}
+                    onChange={(e) => setFormData(prev => ({ ...prev, title_vietnamese: e.target.value }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+              </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Năm
-              </label>
-              <input
-                type="number"
-                value={formData.year}
-                onChange={(e) => setFormData(prev => ({ ...prev, year: parseInt(e.target.value) }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Mô Tả
+                </label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                  rows={4}
+                  className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Đánh Giá
-              </label>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                max="10"
-                value={formData.rating}
-                onChange={(e) => setFormData(prev => ({ ...prev, rating: parseFloat(e.target.value) }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Năm
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.year}
+                    onChange={(e) => setFormData(prev => ({ ...prev, year: parseInt(e.target.value) }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Số Tập
-              </label>
-              <input
-                type="number"
-                value={formData.episode_count}
-                onChange={(e) => setFormData(prev => ({ ...prev, episode_count: parseInt(e.target.value) }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-          </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Đánh Giá
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="10"
+                    value={formData.rating}
+                    onChange={(e) => setFormData(prev => ({ ...prev, rating: parseFloat(e.target.value) }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Đạo Diễn
-              </label>
-              <input
-                type="text"
-                value={formData.director}
-                onChange={(e) => setFormData(prev => ({ ...prev, director: e.target.value }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Số Tập
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.episode_count}
+                    onChange={(e) => setFormData(prev => ({ ...prev, episode_count: parseInt(e.target.value) }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Studio
-              </label>
-              <input
-                type="text"
-                value={formData.studio}
-                onChange={(e) => setFormData(prev => ({ ...prev, studio: e.target.value }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-          </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Đạo Diễn
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.director}
+                    onChange={(e) => setFormData(prev => ({ ...prev, director: e.target.value }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Thể Loại
-            </label>
-            <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
-              {availableGenres.map((genre) => (
-                <label key={genre} className="flex items-center space-x-2 cursor-pointer">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Studio
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.studio}
+                    onChange={(e) => setFormData(prev => ({ ...prev, studio: e.target.value }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Thể Loại
+                </label>
+                <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
+                  {availableGenres.map((genre) => (
+                    <label key={genre} className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.genre.includes(genre)}
+                        onChange={() => handleGenreChange(genre)}
+                        className="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-gray-300 text-sm">{genre}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Thumbnail URL
+                  </label>
+                  <input
+                    type="url"
+                    value={formData.thumbnail}
+                    onChange={(e) => setFormData(prev => ({ ...prev, thumbnail: e.target.value }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Banner URL
+                  </label>
+                  <input
+                    type="url"
+                    value={formData.banner}
+                    onChange={(e) => setFormData(prev => ({ ...prev, banner: e.target.value }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Trạng Thái
+                  </label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as any }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="upcoming">Sắp ra mắt</option>
+                    <option value="ongoing">Đang phát sóng</option>
+                    <option value="completed">Đã hoàn thành</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Ngày Phát Sóng
+                  </label>
+                  <select
+                    value={formData.air_day}
+                    onChange={(e) => setFormData(prev => ({ ...prev, air_day: e.target.value }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Chọn ngày</option>
+                    {weekDays.map((day) => (
+                      <option key={day.value} value={day.value}>{day.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Giờ Phát Sóng
+                  </label>
+                  <input
+                    type="time"
+                    value={formData.air_time}
+                    onChange={(e) => setFormData(prev => ({ ...prev, air_time: e.target.value }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-6">
+                <label className="flex items-center space-x-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={formData.genre.includes(genre)}
-                    onChange={() => handleGenreChange(genre)}
+                    checked={formData.featured}
+                    onChange={(e) => setFormData(prev => ({ ...prev, featured: e.target.checked }))}
                     className="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500"
                   />
-                  <span className="text-gray-300 text-sm">{genre}</span>
+                  <span className="text-gray-300">Nổi bật</span>
                 </label>
-              ))}
-            </div>
+
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.new}
+                    onChange={(e) => setFormData(prev => ({ ...prev, new: e.target.checked }))}
+                    className="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-gray-300">Mới</span>
+                </label>
+
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.popular}
+                    onChange={(e) => setFormData(prev => ({ ...prev, popular: e.target.checked }))}
+                    className="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-gray-300">Phổ biến</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end space-x-4 pt-6 border-t border-gray-700">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded-lg transition-colors flex items-center space-x-2"
+                >
+                  {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                  <span>{series ? 'Cập Nhật' : 'Tạo Mới'}</span>
+                </button>
+              </div>
+            </form>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Thumbnail URL
-              </label>
-              <input
-                type="url"
-                value={formData.thumbnail}
-                onChange={(e) => setFormData(prev => ({ ...prev, thumbnail: e.target.value }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Banner URL
-              </label>
-              <input
-                type="url"
-                value={formData.banner}
-                onChange={(e) => setFormData(prev => ({ ...prev, banner: e.target.value }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Trạng Thái
-              </label>
-              <select
-                value={formData.status}
-                onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as any }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="upcoming">Sắp ra mắt</option>
-                <option value="ongoing">Đang phát sóng</option>
-                <option value="completed">Đã hoàn thành</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Ngày Phát Sóng
-              </label>
-              <select
-                value={formData.air_day}
-                onChange={(e) => setFormData(prev => ({ ...prev, air_day: e.target.value }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Chọn ngày</option>
-                {weekDays.map((day) => (
-                  <option key={day.value} value={day.value}>{day.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Giờ Phát Sóng
-              </label>
-              <input
-                type="time"
-                value={formData.air_time}
-                onChange={(e) => setFormData(prev => ({ ...prev, air_time: e.target.value }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-6">
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formData.featured}
-                onChange={(e) => setFormData(prev => ({ ...prev, featured: e.target.checked }))}
-                className="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-gray-300">Nổi bật</span>
-            </label>
-
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formData.new}
-                onChange={(e) => setFormData(prev => ({ ...prev, new: e.target.checked }))}
-                className="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-gray-300">Mới</span>
-            </label>
-
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formData.popular}
-                onChange={(e) => setFormData(prev => ({ ...prev, popular: e.target.checked }))}
-                className="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-gray-300">Phổ biến</span>
-            </label>
-          </div>
-
-          <div className="flex justify-end space-x-4 pt-6 border-t border-gray-700">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
-            >
-              Hủy
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded-lg transition-colors flex items-center space-x-2"
-            >
-              {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-              <span>{series ? 'Cập Nhật' : 'Tạo Mới'}</span>
-            </button>
-          </div>
-        </form>
+        </div>
       </div>
     </div>
   );
 };
 
-// Episode Modal Component
+// Episode Modal Component - HIỂN THỊ Ở TRÊN CÙNG
 const EpisodeModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -1135,179 +1148,192 @@ const EpisodeModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="bg-gray-900 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-gray-700">
-        <div className="p-6 border-b border-gray-700">
-          <h2 className="text-2xl font-bold text-white">
-            {episode ? 'Chỉnh Sửa Tập Phim' : 'Thêm Tập Phim Mới'}
-          </h2>
+    <div className="fixed inset-0 z-60 bg-black/80 backdrop-blur-sm">
+      {/* CONTAINER HIỂN THỊ Ở TRÊN CÙNG */}
+      <div className="h-full overflow-y-auto">
+        <div className="min-h-full flex items-start justify-center p-4 pt-8">
+          <div className="bg-gray-900 rounded-2xl max-w-2xl w-full border border-gray-700 my-8">
+            <div className="p-6 border-b border-gray-700">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-white">
+                  {episode ? 'Chỉnh Sửa Tập Phim' : 'Thêm Tập Phim Mới'}
+                </h2>
+                <button
+                  onClick={onClose}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Số Tập
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.number}
+                    onChange={(e) => setFormData(prev => ({ ...prev, number: parseInt(e.target.value) }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Thời Lượng
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.duration}
+                    onChange={(e) => setFormData(prev => ({ ...prev, duration: e.target.value }))}
+                    placeholder="24:00"
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Tên Tập (Tiếng Anh)
+                </label>
+                <input
+                  type="text"
+                  value={formData.title}
+                  onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Tên Tập (Tiếng Việt)
+                </label>
+                <input
+                  type="text"
+                  value={formData.title_vietnamese}
+                  onChange={(e) => setFormData(prev => ({ ...prev, title_vietnamese: e.target.value }))}
+                  className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Mô Tả
+                </label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                  rows={3}
+                  className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Thumbnail URL
+                  </label>
+                  <input
+                    type="url"
+                    value={formData.thumbnail}
+                    onChange={(e) => setFormData(prev => ({ ...prev, thumbnail: e.target.value }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Ngày Phát Hành
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.release_date}
+                    onChange={(e) => setFormData(prev => ({ ...prev, release_date: e.target.value }))}
+                    className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Đánh Giá
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="10"
+                  value={formData.rating}
+                  onChange={(e) => setFormData(prev => ({ ...prev, rating: parseFloat(e.target.value) }))}
+                  className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.has_behind_scenes}
+                    onChange={(e) => setFormData(prev => ({ ...prev, has_behind_scenes: e.target.checked }))}
+                    className="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-gray-300">Có hậu trường</span>
+                </label>
+
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.has_commentary}
+                    onChange={(e) => setFormData(prev => ({ ...prev, has_commentary: e.target.checked }))}
+                    className="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-gray-300">Có bình luận đạo diễn</span>
+                </label>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Ghi Chú Đạo Diễn
+                </label>
+                <textarea
+                  value={formData.director_notes}
+                  onChange={(e) => setFormData(prev => ({ ...prev, director_notes: e.target.value }))}
+                  rows={2}
+                  className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-4 pt-6 border-t border-gray-700">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded-lg transition-colors flex items-center space-x-2"
+                >
+                  {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                  <span>{episode ? 'Cập Nhật' : 'Tạo Mới'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Số Tập
-              </label>
-              <input
-                type="number"
-                value={formData.number}
-                onChange={(e) => setFormData(prev => ({ ...prev, number: parseInt(e.target.value) }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Thời Lượng
-              </label>
-              <input
-                type="text"
-                value={formData.duration}
-                onChange={(e) => setFormData(prev => ({ ...prev, duration: e.target.value }))}
-                placeholder="24:00"
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Tên Tập (Tiếng Anh)
-            </label>
-            <input
-              type="text"
-              value={formData.title}
-              onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
-              className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Tên Tập (Tiếng Việt)
-            </label>
-            <input
-              type="text"
-              value={formData.title_vietnamese}
-              onChange={(e) => setFormData(prev => ({ ...prev, title_vietnamese: e.target.value }))}
-              className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Mô Tả
-            </label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-              rows={3}
-              className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Thumbnail URL
-              </label>
-              <input
-                type="url"
-                value={formData.thumbnail}
-                onChange={(e) => setFormData(prev => ({ ...prev, thumbnail: e.target.value }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Ngày Phát Hành
-              </label>
-              <input
-                type="date"
-                value={formData.release_date}
-                onChange={(e) => setFormData(prev => ({ ...prev, release_date: e.target.value }))}
-                className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Đánh Giá
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              max="10"
-              value={formData.rating}
-              onChange={(e) => setFormData(prev => ({ ...prev, rating: parseFloat(e.target.value) }))}
-              className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-6">
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formData.has_behind_scenes}
-                onChange={(e) => setFormData(prev => ({ ...prev, has_behind_scenes: e.target.checked }))}
-                className="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-gray-300">Có hậu trường</span>
-            </label>
-
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formData.has_commentary}
-                onChange={(e) => setFormData(prev => ({ ...prev, has_commentary: e.target.checked }))}
-                className="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-gray-300">Có bình luận đạo diễn</span>
-            </label>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Ghi Chú Đạo Diễn
-            </label>
-            <textarea
-              value={formData.director_notes}
-              onChange={(e) => setFormData(prev => ({ ...prev, director_notes: e.target.value }))}
-              rows={2}
-              className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div className="flex justify-end space-x-4 pt-6 border-t border-gray-700">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
-            >
-              Hủy
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded-lg transition-colors flex items-center space-x-2"
-            >
-              {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-              <span>{episode ? 'Cập Nhật' : 'Tạo Mới'}</span>
-            </button>
-          </div>
-        </form>
       </div>
     </div>
   );
