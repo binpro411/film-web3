@@ -92,7 +92,39 @@ try {
   process.exit(1);
 }
 
-// Serve static files with proper headers and throttling
+// Rate limiting for API requests
+const requestTracker = new Map();
+
+const rateLimit = (maxRequests = 10, windowMs = 60000) => {
+  return (req, res, next) => {
+    const clientIP = req.ip || req.connection.remoteAddress;
+    const now = Date.now();
+    
+    if (!requestTracker.has(clientIP)) {
+      requestTracker.set(clientIP, []);
+    }
+    
+    const requests = requestTracker.get(clientIP);
+    
+    // Clean old requests
+    const validRequests = requests.filter(time => now - time < windowMs);
+    
+    if (validRequests.length >= maxRequests) {
+      return res.status(429).json({
+        success: false,
+        error: 'Too many requests',
+        retryAfter: Math.ceil(windowMs / 1000)
+      });
+    }
+    
+    validRequests.push(now);
+    requestTracker.set(clientIP, validRequests);
+    
+    next();
+  };
+};
+
+// Serve static files with proper headers and caching
 app.use('/segments', express.static(SEGMENTS_DIR, {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.m3u8')) {
@@ -109,39 +141,9 @@ app.use('/segments', express.static(SEGMENTS_DIR, {
 
 app.use('/videos', express.static(VIDEOS_DIR));
 
-// Rate limiting for segment requests
-const segmentRequestTracker = new Map();
-
-// Middleware to throttle segment loading
-const throttleSegments = (req, res, next) => {
-  const clientIP = req.ip || req.connection.remoteAddress;
-  const now = Date.now();
-  
-  if (!segmentRequestTracker.has(clientIP)) {
-    segmentRequestTracker.set(clientIP, { requests: [], lastRequest: now });
-  }
-  
-  const tracker = segmentRequestTracker.get(clientIP);
-  
-  // Clean old requests (older than 10 seconds)
-  tracker.requests = tracker.requests.filter(time => now - time < 10000);
-  
-  // Allow max 5 concurrent segment requests per 10 seconds
-  if (tracker.requests.length >= 5) {
-    const delay = Math.max(0, 2000 - (now - tracker.lastRequest));
-    if (delay > 0) {
-      setTimeout(() => next(), delay);
-      return;
-    }
-  }
-  
-  tracker.requests.push(now);
-  tracker.lastRequest = now;
-  next();
-};
-
-// Apply throttling to segment requests
-app.use('/segments/*.ts', throttleSegments);
+// Apply rate limiting to API routes
+app.use('/api/video/:videoId/segments', rateLimit(5, 10000)); // 5 requests per 10 seconds
+app.use('/api/progress', rateLimit(6, 60000)); // 6 requests per minute
 
 // Utility functions
 const createSafeFilename = (originalName) => {
@@ -506,7 +508,7 @@ app.get('/api/video/:videoId', async (req, res) => {
   }
 });
 
-// Get video segments with pagination
+// Get video segments with pagination and caching
 app.get('/api/video/:videoId/segments', async (req, res) => {
   const { videoId } = req.params;
   const { page = 1, limit = 50 } = req.query;
@@ -538,6 +540,10 @@ app.get('/api/video/:videoId/segments', async (req, res) => {
       fileSize: segment.file_size,
       createdAt: segment.created_at
     }));
+
+    // Set cache headers for segments list
+    res.setHeader('Cache-Control', 'public, max-age=300'); // Cache for 5 minutes
+    res.setHeader('ETag', `"${videoId}-${totalSegments}-${page}"`);
 
     res.json({
       success: true,
@@ -599,7 +605,7 @@ app.get('/api/videos/:seriesId/:episodeNumber', async (req, res) => {
   }
 });
 
-// Update watch progress with proper validation
+// Update watch progress with proper validation and throttling
 app.post('/api/progress', async (req, res) => {
   const { userId, videoId, progress, duration } = req.body;
   
@@ -688,7 +694,7 @@ app.get('/api/health', async (req, res) => {
         path: process.env.FFMPEG_PATH || 'system',
         status: 'configured'
       },
-      features: ['Video Upload', 'FFmpeg HLS Segmentation', 'PostgreSQL Storage', 'Watch Progress', 'Progressive Loading']
+      features: ['Video Upload', 'FFmpeg HLS Segmentation', 'PostgreSQL Storage', 'Watch Progress', 'Progressive Loading', 'Rate Limiting']
     });
   } catch (error) {
     res.status(500).json({
@@ -744,6 +750,7 @@ app.listen(PORT, () => {
   console.log(`🐘 Database: PostgreSQL (${process.env.DB_NAME})`);
   console.log(`🎬 FFmpeg: ${process.env.FFMPEG_PATH || 'system path'}`);
   console.log(`🌐 CORS enabled for: http://localhost:5173`);
+  console.log(`🛡️  Rate limiting enabled`);
   console.log(`📡 Ready to accept video uploads!`);
 });
 

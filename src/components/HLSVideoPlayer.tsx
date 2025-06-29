@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Play, Pause, Volume2, VolumeX, Maximize, SkipBack, SkipForward, Loader2, Wifi } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -44,22 +44,152 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
 
   const { user, updateWatchProgress } = useAuth();
 
-  // Progressive loading state
+  // Progressive loading state with throttling
   const [progressiveLoader, setProgressiveLoader] = useState({
     isActive: false,
     loadedSegments: 0,
-    preloadBuffer: 3, // Load 3 segments ahead
-    lastLoadTime: 0
+    preloadBuffer: 3,
+    lastLoadTime: 0,
+    lastProgressSave: 0,
+    isInitialized: false
   });
 
+  // Throttled progress saving
+  const saveProgressThrottled = useCallback(async (progress: number, duration: number) => {
+    const now = Date.now();
+    if (now - progressiveLoader.lastProgressSave < 10000) return; // Only save every 10 seconds
+
+    if (!user || !videoId || duration < 1) return;
+
+    try {
+      await fetch('http://localhost:3001/api/progress', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          videoId,
+          progress,
+          duration
+        })
+      });
+
+      setProgressiveLoader(prev => ({
+        ...prev,
+        lastProgressSave: now
+      }));
+    } catch (error) {
+      console.error('Failed to save progress:', error);
+    }
+  }, [user, videoId, progressiveLoader.lastProgressSave]);
+
+  // Initialize segments info ONCE
+  const initializeSegments = useCallback(async () => {
+    if (!videoId || progressiveLoader.isInitialized) return;
+
+    try {
+      const response = await fetch(`http://localhost:3001/api/video/${videoId}/segments?limit=10`);
+      const data = await response.json();
+      
+      if (data.success) {
+        setTotalSegments(data.totalSegments);
+        setSegmentsLoaded(Math.min(10, data.totalSegments)); // Initial 10 segments
+        setProgressiveLoader(prev => ({
+          ...prev,
+          isActive: true,
+          isInitialized: true,
+          loadedSegments: Math.min(10, data.totalSegments)
+        }));
+        console.log(`📊 Initialized: ${data.totalSegments} total segments, loaded first 10`);
+      }
+    } catch (error) {
+      console.error('Failed to initialize segments:', error);
+    }
+  }, [videoId, progressiveLoader.isInitialized]);
+
+  // Progressive loading with proper throttling
+  const handleProgressiveLoading = useCallback((currentTime: number) => {
+    if (!progressiveLoader.isActive || !duration || !totalSegments) return;
+
+    const now = Date.now();
+    if (now - progressiveLoader.lastLoadTime < 5000) return; // Throttle to 5 seconds
+
+    const segmentDuration = 6;
+    const currentSegment = Math.floor(currentTime / segmentDuration);
+    const targetSegment = Math.min(currentSegment + progressiveLoader.preloadBuffer, totalSegments);
+    
+    if (targetSegment > progressiveLoader.loadedSegments) {
+      preloadSegments(progressiveLoader.loadedSegments + 1, targetSegment);
+      setProgressiveLoader(prev => ({
+        ...prev,
+        loadedSegments: targetSegment,
+        lastLoadTime: now
+      }));
+    }
+  }, [progressiveLoader, duration, totalSegments]);
+
+  // Preload segments with proper error handling
+  const preloadSegments = useCallback(async (startSegment: number, endSegment: number) => {
+    const segmentsToLoad = [];
+    for (let i = startSegment; i <= endSegment; i++) {
+      segmentsToLoad.push(`segment_${i.toString().padStart(3, '0')}.ts`);
+    }
+    
+    setLoadingSegments(segmentsToLoad);
+    
+    const startTime = Date.now();
+    
+    try {
+      // Preload with HEAD requests (lighter than full downloads)
+      const promises = segmentsToLoad.map(segment => 
+        fetch(`http://localhost:3001/segments/${videoId}/${segment}`, { 
+          method: 'HEAD',
+          cache: 'force-cache' // Use browser cache
+        }).catch(() => null) // Ignore individual failures
+      );
+      
+      await Promise.allSettled(promises); // Don't fail if some segments fail
+      
+      const endTime = Date.now();
+      const loadTime = endTime - startTime;
+      const estimatedSpeed = loadTime > 0 ? (segmentsToLoad.length * 1000) / loadTime : 0;
+      setNetworkSpeed(estimatedSpeed);
+      
+      setSegmentsLoaded(prev => prev + segmentsToLoad.length);
+      console.log(`📦 Preloaded segments ${startSegment}-${endSegment} (${loadTime}ms)`);
+    } catch (error) {
+      console.error('Segment preloading failed:', error);
+    } finally {
+      setLoadingSegments([]);
+    }
+  }, [videoId]);
+
+  // Update buffer health
+  const updateBufferHealth = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !duration) return;
+
+    if (video.buffered.length > 0) {
+      const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+      const bufferedPercent = (bufferedEnd / duration) * 100;
+      setBuffered(bufferedPercent);
+      
+      const bufferAhead = bufferedEnd - video.currentTime;
+      const healthPercent = Math.min((bufferAhead / 30) * 100, 100);
+      setBufferHealth(healthPercent);
+    }
+  }, [duration]);
+
+  // Main video setup effect
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    // Initialize progressive loading
-    initializeProgressiveLoading();
+    // Initialize segments info
+    initializeSegments();
 
-    // Load video source
+    // Set video source
     video.src = src;
 
     const handleLoadedMetadata = () => {
@@ -76,15 +206,13 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       setCurrentTime(current);
       onTimeUpdate?.(current, video.duration);
       
-      // Progressive segment loading
+      // Progressive loading (throttled)
       handleProgressiveLoading(current);
       
-      // Throttled progress saving (every 10 seconds)
-      if (videoId && user && Math.floor(current) % 10 === 0) {
-        saveProgressToServer(current, video.duration);
-      }
+      // Save progress (throttled)
+      saveProgressThrottled(current, video.duration);
       
-      // Update local progress (every 5 seconds)
+      // Update local progress (throttled)
       if (seriesId && episodeId && Math.floor(current) % 5 === 0) {
         updateWatchProgress(seriesId, episodeId, current, video.duration);
       }
@@ -105,7 +233,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
     const handleEnded = () => {
       setIsPlaying(false);
       if (videoId && user) {
-        saveProgressToServer(video.duration, video.duration);
+        saveProgressThrottled(video.duration, video.duration);
       }
       if (seriesId && episodeId) {
         updateWatchProgress(seriesId, episodeId, video.duration, video.duration);
@@ -113,6 +241,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       onEnded?.();
     };
 
+    // Add event listeners
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('progress', handleProgress);
@@ -123,6 +252,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
     video.addEventListener('ended', handleEnded);
 
     return () => {
+      // Cleanup event listeners
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('progress', handleProgress);
@@ -132,115 +262,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('ended', handleEnded);
     };
-  }, [src, onTimeUpdate, onEnded, resumeTime, seriesId, episodeId, videoId, user, updateWatchProgress]);
-
-  const initializeProgressiveLoading = async () => {
-    if (videoId) {
-      try {
-        const response = await fetch(`http://localhost:3001/api/video/${videoId}/segments?limit=10`);
-        const data = await response.json();
-        if (data.success) {
-          setTotalSegments(data.totalSegments);
-          setProgressiveLoader(prev => ({
-            ...prev,
-            isActive: true
-          }));
-        }
-      } catch (error) {
-        console.error('Failed to initialize progressive loading:', error);
-      }
-    }
-  };
-
-  const handleProgressiveLoading = (currentTime: number) => {
-    if (!progressiveLoader.isActive || !duration) return;
-
-    const segmentDuration = 6; // 6 seconds per segment
-    const currentSegment = Math.floor(currentTime / segmentDuration);
-    const targetSegment = currentSegment + progressiveLoader.preloadBuffer;
-    
-    // Throttle loading requests
-    const now = Date.now();
-    if (now - progressiveLoader.lastLoadTime < 2000) return; // Max 1 request per 2 seconds
-
-    if (targetSegment > progressiveLoader.loadedSegments && targetSegment < totalSegments) {
-      preloadSegments(progressiveLoader.loadedSegments + 1, targetSegment);
-      setProgressiveLoader(prev => ({
-        ...prev,
-        loadedSegments: targetSegment,
-        lastLoadTime: now
-      }));
-    }
-  };
-
-  const preloadSegments = async (startSegment: number, endSegment: number) => {
-    const segmentsToLoad = [];
-    for (let i = startSegment; i <= endSegment; i++) {
-      segmentsToLoad.push(`segment_${i.toString().padStart(3, '0')}.ts`);
-    }
-    
-    setLoadingSegments(segmentsToLoad);
-    
-    // Simulate network speed calculation
-    const startTime = Date.now();
-    
-    try {
-      // Preload segments by making HEAD requests
-      const promises = segmentsToLoad.map(segment => 
-        fetch(`http://localhost:3001/segments/${videoId}/${segment}`, { method: 'HEAD' })
-      );
-      
-      await Promise.all(promises);
-      
-      const endTime = Date.now();
-      const loadTime = endTime - startTime;
-      const estimatedSpeed = (segmentsToLoad.length * 1000) / loadTime; // segments per second
-      setNetworkSpeed(estimatedSpeed);
-      
-      setSegmentsLoaded(prev => prev + segmentsToLoad.length);
-    } catch (error) {
-      console.error('Segment preloading failed:', error);
-    } finally {
-      setLoadingSegments([]);
-    }
-  };
-
-  const updateBufferHealth = () => {
-    const video = videoRef.current;
-    if (!video || !duration) return;
-
-    if (video.buffered.length > 0) {
-      const bufferedEnd = video.buffered.end(video.buffered.length - 1);
-      const bufferedPercent = (bufferedEnd / duration) * 100;
-      setBuffered(bufferedPercent);
-      
-      // Calculate buffer health (how much is buffered ahead)
-      const bufferAhead = bufferedEnd - video.currentTime;
-      const healthPercent = Math.min((bufferAhead / 30) * 100, 100); // 30 seconds = 100% health
-      setBufferHealth(healthPercent);
-    }
-  };
-
-  const saveProgressToServer = async (progress: number, duration: number) => {
-    if (!user || !videoId) return;
-
-    try {
-      await fetch('http://localhost:3001/api/progress', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userId: user.id,
-          videoId,
-          progress,
-          duration
-        })
-      });
-    } catch (error) {
-      console.error('Failed to save progress:', error);
-    }
-  };
+  }, [src, resumeTime, initializeSegments, handleProgressiveLoading, saveProgressThrottled, updateBufferHealth, onTimeUpdate, onEnded, seriesId, episodeId, videoId, user, updateWatchProgress]);
 
   // Auto-hide controls
   useEffect(() => {
@@ -392,7 +414,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
           <div className="text-center">
             <Loader2 className="h-12 w-12 text-white animate-spin mx-auto mb-4" />
             <p className="text-white mb-2">Đang tải video...</p>
-            {progressiveLoader.isActive && (
+            {progressiveLoader.isActive && totalSegments > 0 && (
               <>
                 <div className="bg-gray-700 rounded-full h-2 w-64 mx-auto mb-2">
                   <div 
