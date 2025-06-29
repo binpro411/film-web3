@@ -1,5 +1,5 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Play, Pause, Volume2, VolumeX, Maximize, SkipBack, SkipForward, Loader2, Wifi } from 'lucide-react';
+import React, { useRef, useEffect, useState } from 'react';
+import { Play, Pause, Volume2, VolumeX, Maximize, SkipBack, SkipForward, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface HLSVideoPlayerProps {
@@ -34,31 +34,168 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [buffered, setBuffered] = useState(0);
   const [showControls, setShowControls] = useState(true);
-  const [quality, setQuality] = useState('Auto');
   const [playbackRate, setPlaybackRate] = useState(1);
-  const [segmentsLoaded, setSegmentsLoaded] = useState(0);
-  const [totalSegments, setTotalSegments] = useState(0);
-  const [loadingSegments, setLoadingSegments] = useState<string[]>([]);
-  const [networkSpeed, setNetworkSpeed] = useState(0);
-  const [bufferHealth, setBufferHealth] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   const { user, updateWatchProgress } = useAuth();
 
-  // Progressive loading state with throttling
-  const [progressiveLoader, setProgressiveLoader] = useState({
-    isActive: false,
-    loadedSegments: 0,
-    preloadBuffer: 3,
-    lastLoadTime: 0,
-    lastProgressSave: 0,
-    isInitialized: false
-  });
+  // Progress saving throttle
+  const [lastProgressSave, setLastProgressSave] = useState(0);
 
-  // Throttled progress saving
-  const saveProgressThrottled = useCallback(async (progress: number, duration: number) => {
-    const now = Date.now();
-    if (now - progressiveLoader.lastProgressSave < 10000) return; // Only save every 10 seconds
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
 
+    console.log('🎬 Loading HLS video:', src);
+
+    // Reset states
+    setError(null);
+    setIsLoading(true);
+
+    // Set video source - Browser will handle HLS automatically
+    video.src = src;
+
+    const handleLoadStart = () => {
+      console.log('📡 Video load started');
+      setIsLoading(true);
+    };
+
+    const handleLoadedMetadata = () => {
+      console.log('📊 Video metadata loaded:', {
+        duration: video.duration,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight
+      });
+      setDuration(video.duration);
+      setIsLoading(false);
+      
+      if (resumeTime > 0 && resumeTime < video.duration) {
+        console.log(`⏭️ Resuming from: ${resumeTime}s`);
+        video.currentTime = resumeTime;
+      }
+    };
+
+    const handleCanPlay = () => {
+      console.log('✅ Video can play');
+      setIsLoading(false);
+    };
+
+    const handleTimeUpdate = () => {
+      const current = video.currentTime;
+      setCurrentTime(current);
+      onTimeUpdate?.(current, video.duration);
+      
+      // Save progress every 10 seconds
+      const now = Date.now();
+      if (now - lastProgressSave > 10000) {
+        saveProgress(current, video.duration);
+        setLastProgressSave(now);
+      }
+      
+      // Update local progress every 5 seconds
+      if (seriesId && episodeId && Math.floor(current) % 5 === 0) {
+        updateWatchProgress(seriesId, episodeId, current, video.duration);
+      }
+    };
+
+    const handleProgress = () => {
+      if (video.buffered.length > 0) {
+        const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+        const bufferedPercent = (bufferedEnd / video.duration) * 100;
+        setBuffered(bufferedPercent);
+      }
+    };
+
+    const handlePlay = () => {
+      console.log('▶️ Video playing');
+      setIsPlaying(true);
+    };
+
+    const handlePause = () => {
+      console.log('⏸️ Video paused');
+      setIsPlaying(false);
+    };
+
+    const handleWaiting = () => {
+      console.log('⏳ Video waiting for data');
+      setIsLoading(true);
+    };
+
+    const handlePlaying = () => {
+      console.log('🎬 Video playing smoothly');
+      setIsLoading(false);
+    };
+
+    const handleError = (e: Event) => {
+      const error = (e.target as HTMLVideoElement).error;
+      console.error('❌ Video error:', error);
+      
+      let errorMessage = 'Video playback error';
+      if (error) {
+        switch (error.code) {
+          case error.MEDIA_ERR_ABORTED:
+            errorMessage = 'Video playback aborted';
+            break;
+          case error.MEDIA_ERR_NETWORK:
+            errorMessage = 'Network error while loading video';
+            break;
+          case error.MEDIA_ERR_DECODE:
+            errorMessage = 'Video decode error';
+            break;
+          case error.MEDIA_ERR_SRC_NOT_SUPPORTED:
+            errorMessage = 'Video format not supported';
+            break;
+        }
+      }
+      
+      setError(errorMessage);
+      setIsLoading(false);
+    };
+
+    const handleEnded = () => {
+      console.log('🏁 Video ended');
+      setIsPlaying(false);
+      
+      // Save final progress
+      saveProgress(video.duration, video.duration);
+      
+      if (seriesId && episodeId) {
+        updateWatchProgress(seriesId, episodeId, video.duration, video.duration);
+      }
+      
+      onEnded?.();
+    };
+
+    // Add event listeners
+    video.addEventListener('loadstart', handleLoadStart);
+    video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('canplay', handleCanPlay);
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    video.addEventListener('progress', handleProgress);
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('pause', handlePause);
+    video.addEventListener('waiting', handleWaiting);
+    video.addEventListener('playing', handlePlaying);
+    video.addEventListener('error', handleError);
+    video.addEventListener('ended', handleEnded);
+
+    return () => {
+      // Cleanup
+      video.removeEventListener('loadstart', handleLoadStart);
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('canplay', handleCanPlay);
+      video.removeEventListener('timeupdate', handleTimeUpdate);
+      video.removeEventListener('progress', handleProgress);
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('pause', handlePause);
+      video.removeEventListener('waiting', handleWaiting);
+      video.removeEventListener('playing', handlePlaying);
+      video.removeEventListener('error', handleError);
+      video.removeEventListener('ended', handleEnded);
+    };
+  }, [src, resumeTime, onTimeUpdate, onEnded, seriesId, episodeId, updateWatchProgress, lastProgressSave]);
+
+  const saveProgress = async (progress: number, duration: number) => {
     if (!user || !videoId || duration < 1) return;
 
     try {
@@ -74,195 +211,10 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
           duration
         })
       });
-
-      setProgressiveLoader(prev => ({
-        ...prev,
-        lastProgressSave: now
-      }));
     } catch (error) {
       console.error('Failed to save progress:', error);
     }
-  }, [user, videoId, progressiveLoader.lastProgressSave]);
-
-  // Initialize segments info ONCE
-  const initializeSegments = useCallback(async () => {
-    if (!videoId || progressiveLoader.isInitialized) return;
-
-    try {
-      const response = await fetch(`http://localhost:3001/api/video/${videoId}/segments?limit=10`);
-      const data = await response.json();
-      
-      if (data.success) {
-        setTotalSegments(data.totalSegments);
-        setSegmentsLoaded(Math.min(10, data.totalSegments)); // Initial 10 segments
-        setProgressiveLoader(prev => ({
-          ...prev,
-          isActive: true,
-          isInitialized: true,
-          loadedSegments: Math.min(10, data.totalSegments)
-        }));
-        console.log(`📊 Initialized: ${data.totalSegments} total segments, loaded first 10`);
-      }
-    } catch (error) {
-      console.error('Failed to initialize segments:', error);
-    }
-  }, [videoId, progressiveLoader.isInitialized]);
-
-  // Progressive loading with proper throttling
-  const handleProgressiveLoading = useCallback((currentTime: number) => {
-    if (!progressiveLoader.isActive || !duration || !totalSegments) return;
-
-    const now = Date.now();
-    if (now - progressiveLoader.lastLoadTime < 5000) return; // Throttle to 5 seconds
-
-    const segmentDuration = 6;
-    const currentSegment = Math.floor(currentTime / segmentDuration);
-    const targetSegment = Math.min(currentSegment + progressiveLoader.preloadBuffer, totalSegments);
-    
-    if (targetSegment > progressiveLoader.loadedSegments) {
-      preloadSegments(progressiveLoader.loadedSegments + 1, targetSegment);
-      setProgressiveLoader(prev => ({
-        ...prev,
-        loadedSegments: targetSegment,
-        lastLoadTime: now
-      }));
-    }
-  }, [progressiveLoader, duration, totalSegments]);
-
-  // Preload segments with proper error handling
-  const preloadSegments = useCallback(async (startSegment: number, endSegment: number) => {
-    const segmentsToLoad = [];
-    for (let i = startSegment; i <= endSegment; i++) {
-      segmentsToLoad.push(`segment_${i.toString().padStart(3, '0')}.ts`);
-    }
-    
-    setLoadingSegments(segmentsToLoad);
-    
-    const startTime = Date.now();
-    
-    try {
-      // Preload with HEAD requests (lighter than full downloads)
-      const promises = segmentsToLoad.map(segment => 
-        fetch(`http://localhost:3001/segments/${videoId}/${segment}`, { 
-          method: 'HEAD',
-          cache: 'force-cache' // Use browser cache
-        }).catch(() => null) // Ignore individual failures
-      );
-      
-      await Promise.allSettled(promises); // Don't fail if some segments fail
-      
-      const endTime = Date.now();
-      const loadTime = endTime - startTime;
-      const estimatedSpeed = loadTime > 0 ? (segmentsToLoad.length * 1000) / loadTime : 0;
-      setNetworkSpeed(estimatedSpeed);
-      
-      setSegmentsLoaded(prev => prev + segmentsToLoad.length);
-      console.log(`📦 Preloaded segments ${startSegment}-${endSegment} (${loadTime}ms)`);
-    } catch (error) {
-      console.error('Segment preloading failed:', error);
-    } finally {
-      setLoadingSegments([]);
-    }
-  }, [videoId]);
-
-  // Update buffer health
-  const updateBufferHealth = useCallback(() => {
-    const video = videoRef.current;
-    if (!video || !duration) return;
-
-    if (video.buffered.length > 0) {
-      const bufferedEnd = video.buffered.end(video.buffered.length - 1);
-      const bufferedPercent = (bufferedEnd / duration) * 100;
-      setBuffered(bufferedPercent);
-      
-      const bufferAhead = bufferedEnd - video.currentTime;
-      const healthPercent = Math.min((bufferAhead / 30) * 100, 100);
-      setBufferHealth(healthPercent);
-    }
-  }, [duration]);
-
-  // Main video setup effect
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    // Initialize segments info
-    initializeSegments();
-
-    // Set video source
-    video.src = src;
-
-    const handleLoadedMetadata = () => {
-      setDuration(video.duration);
-      setIsLoading(false);
-      
-      if (resumeTime > 0) {
-        video.currentTime = resumeTime;
-      }
-    };
-
-    const handleTimeUpdate = () => {
-      const current = video.currentTime;
-      setCurrentTime(current);
-      onTimeUpdate?.(current, video.duration);
-      
-      // Progressive loading (throttled)
-      handleProgressiveLoading(current);
-      
-      // Save progress (throttled)
-      saveProgressThrottled(current, video.duration);
-      
-      // Update local progress (throttled)
-      if (seriesId && episodeId && Math.floor(current) % 5 === 0) {
-        updateWatchProgress(seriesId, episodeId, current, video.duration);
-      }
-      
-      // Update buffer health
-      updateBufferHealth();
-    };
-
-    const handleProgress = () => {
-      updateBufferHealth();
-    };
-
-    const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
-    const handleWaiting = () => setIsLoading(true);
-    const handleCanPlay = () => setIsLoading(false);
-    
-    const handleEnded = () => {
-      setIsPlaying(false);
-      if (videoId && user) {
-        saveProgressThrottled(video.duration, video.duration);
-      }
-      if (seriesId && episodeId) {
-        updateWatchProgress(seriesId, episodeId, video.duration, video.duration);
-      }
-      onEnded?.();
-    };
-
-    // Add event listeners
-    video.addEventListener('loadedmetadata', handleLoadedMetadata);
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    video.addEventListener('progress', handleProgress);
-    video.addEventListener('play', handlePlay);
-    video.addEventListener('pause', handlePause);
-    video.addEventListener('waiting', handleWaiting);
-    video.addEventListener('canplay', handleCanPlay);
-    video.addEventListener('ended', handleEnded);
-
-    return () => {
-      // Cleanup event listeners
-      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      video.removeEventListener('timeupdate', handleTimeUpdate);
-      video.removeEventListener('progress', handleProgress);
-      video.removeEventListener('play', handlePlay);
-      video.removeEventListener('pause', handlePause);
-      video.removeEventListener('waiting', handleWaiting);
-      video.removeEventListener('canplay', handleCanPlay);
-      video.removeEventListener('ended', handleEnded);
-    };
-  }, [src, resumeTime, initializeSegments, handleProgressiveLoading, saveProgressThrottled, updateBufferHealth, onTimeUpdate, onEnded, seriesId, episodeId, videoId, user, updateWatchProgress]);
+  };
 
   // Auto-hide controls
   useEffect(() => {
@@ -323,7 +275,10 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
     if (isPlaying) {
       video.pause();
     } else {
-      video.play();
+      video.play().catch(error => {
+        console.error('Play failed:', error);
+        setError('Failed to play video');
+      });
     }
   };
 
@@ -388,12 +343,6 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const getBufferHealthColor = () => {
-    if (bufferHealth > 70) return 'text-green-400';
-    if (bufferHealth > 30) return 'text-yellow-400';
-    return 'text-red-400';
-  };
-
   return (
     <div 
       className={`relative bg-black rounded-lg overflow-hidden ${className}`}
@@ -406,39 +355,39 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
         className="w-full h-full object-contain"
         onClick={togglePlay}
         playsInline
+        preload="metadata"
       />
 
       {/* Loading Overlay */}
-      {isLoading && (
+      {isLoading && !error && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
           <div className="text-center">
             <Loader2 className="h-12 w-12 text-white animate-spin mx-auto mb-4" />
-            <p className="text-white mb-2">Đang tải video...</p>
-            {progressiveLoader.isActive && totalSegments > 0 && (
-              <>
-                <div className="bg-gray-700 rounded-full h-2 w-64 mx-auto mb-2">
-                  <div 
-                    className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${(segmentsLoaded / totalSegments) * 100}%` }}
-                  />
-                </div>
-                <p className="text-gray-300 text-sm">
-                  Segments: {segmentsLoaded}/{totalSegments}
-                </p>
-                {loadingSegments.length > 0 && (
-                  <p className="text-gray-400 text-xs mt-1">
-                    Loading: {loadingSegments.slice(0, 2).join(', ')}
-                    {loadingSegments.length > 2 && '...'}
-                  </p>
-                )}
-                <div className="flex items-center justify-center space-x-2 mt-2">
-                  <Wifi className="h-4 w-4 text-blue-400" />
-                  <span className="text-blue-400 text-xs">
-                    {networkSpeed.toFixed(1)} seg/s
-                  </span>
-                </div>
-              </>
-            )}
+            <p className="text-white mb-2">Đang tải video HLS...</p>
+            <p className="text-gray-400 text-sm">Browser đang tự động load segments</p>
+          </div>
+        </div>
+      )}
+
+      {/* Error Overlay */}
+      {error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+          <div className="text-center max-w-md mx-auto p-6">
+            <div className="text-red-400 text-6xl mb-4">⚠️</div>
+            <h3 className="text-white text-xl font-bold mb-2">Lỗi phát video</h3>
+            <p className="text-gray-300 mb-4">{error}</p>
+            <button
+              onClick={() => {
+                setError(null);
+                const video = videoRef.current;
+                if (video) {
+                  video.load(); // Reload video
+                }
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+            >
+              Thử lại
+            </button>
           </div>
         </div>
       )}
@@ -449,24 +398,15 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
         <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-4">
           <div className="flex items-center justify-between">
             <h3 className="text-white font-semibold">{title}</h3>
-            <div className="flex items-center space-x-4 text-sm text-gray-300">
-              <div className="flex items-center space-x-1">
-                <span>HLS Streaming</span>
-                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-              </div>
-              {totalSegments > 0 && (
-                <span className="text-xs">({segmentsLoaded}/{totalSegments})</span>
-              )}
-              <div className={`flex items-center space-x-1 ${getBufferHealthColor()}`}>
-                <Wifi className="h-3 w-3" />
-                <span className="text-xs">{bufferHealth.toFixed(0)}%</span>
-              </div>
+            <div className="flex items-center space-x-2 text-sm text-gray-300">
+              <span>HLS Streaming</span>
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
             </div>
           </div>
         </div>
 
         {/* Center Play Button */}
-        {!isPlaying && !isLoading && (
+        {!isPlaying && !isLoading && !error && (
           <div className="absolute inset-0 flex items-center justify-center">
             <button
               onClick={togglePlay}
@@ -569,18 +509,6 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
                 <option value={1.25}>1.25x</option>
                 <option value={1.5}>1.5x</option>
                 <option value={2}>2x</option>
-              </select>
-
-              <select
-                value={quality}
-                onChange={(e) => setQuality(e.target.value)}
-                className="bg-gray-700 text-white text-sm rounded px-2 py-1"
-                title="Video Quality"
-              >
-                <option value="Auto">Auto</option>
-                <option value="1080p">1080p</option>
-                <option value="720p">720p</option>
-                <option value="480p">480p</option>
               </select>
 
               <button
