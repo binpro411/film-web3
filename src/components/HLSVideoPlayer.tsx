@@ -2,6 +2,14 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Play, Pause, Volume2, VolumeX, Maximize, SkipBack, SkipForward, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
+// Import HLS.js
+let Hls: any = null;
+if (typeof window !== 'undefined') {
+  import('hls.js').then((module) => {
+    Hls = module.default;
+  });
+}
+
 interface HLSVideoPlayerProps {
   src: string;
   title: string;
@@ -26,6 +34,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
   resumeTime = 0
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<any>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -37,6 +46,8 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
   const [playbackRate, setPlaybackRate] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [hlsReady, setHlsReady] = useState(false);
+  const [hlsLevels, setHlsLevels] = useState<any[]>([]);
+  const [currentLevel, setCurrentLevel] = useState(-1);
 
   const { user, updateWatchProgress } = useAuth();
 
@@ -83,25 +94,150 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
     }
   }, [seriesId, episodeId, updateWatchProgress]);
 
+  // Initialize HLS
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !src) return;
 
-    console.log('🎬 Loading HLS video:', src);
+    console.log('🎬 Initializing HLS player for:', src);
 
     // Reset states
     setError(null);
     setIsLoading(true);
     setHlsReady(false);
 
-    // Set video source - Browser will handle HLS automatically
-    video.src = src;
+    // Cleanup previous HLS instance
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
 
-    const handleLoadStart = () => {
-      console.log('📡 Video load started');
-      setIsLoading(true);
+    const initializeHLS = async () => {
+      // Wait for HLS.js to load
+      while (!Hls) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      if (Hls.isSupported()) {
+        console.log('✅ HLS.js is supported, using HLS.js');
+        
+        const hls = new Hls({
+          debug: false,
+          enableWorker: true,
+          lowLatencyMode: false,
+          backBufferLength: 90,
+          maxBufferLength: 30,
+          maxMaxBufferLength: 600,
+          maxBufferSize: 60 * 1000 * 1000,
+          maxBufferHole: 0.5,
+          highBufferWatchdogPeriod: 2,
+          nudgeOffset: 0.1,
+          nudgeMaxRetry: 3,
+          maxFragLookUpTolerance: 0.25,
+          liveSyncDurationCount: 3,
+          liveMaxLatencyDurationCount: 10,
+          liveDurationInfinity: false,
+          liveBackBufferLength: 0,
+          maxLiveSyncPlaybackRate: 1,
+          liveSyncDuration: undefined,
+          liveMaxLatencyDuration: undefined,
+          maxStarvationDelay: 4,
+          maxLoadingDelay: 4,
+          minAutoBitrate: 0,
+          emeEnabled: false,
+          widevineLicenseUrl: undefined,
+          drmSystemOptions: {},
+          requestMediaKeySystemAccessFunc: undefined,
+          testBandwidth: true,
+          progressive: false,
+          lowLatencyMode: false,
+          fLoader: undefined,
+          pLoader: undefined,
+          xhrSetup: undefined,
+          fetchSetup: undefined,
+          abrController: undefined,
+          bufferController: undefined,
+          capLevelController: undefined,
+          fpsController: undefined,
+          stretchShortVideoTrack: false,
+          maxAudioFramesDrift: 1,
+          forceKeyFrameOnDiscontinuity: true,
+          abrEwmaFastLive: 3,
+          abrEwmaSlowLive: 9,
+          abrEwmaFastVoD: 3,
+          abrEwmaSlowVoD: 9,
+          abrEwmaDefaultEstimate: 5e5,
+          abrBandWidthFactor: 0.95,
+          abrBandWidthUpFactor: 0.7,
+          abrMaxWithRealBitrate: false,
+          maxStarvationDelay: 4,
+          maxLoadingDelay: 4,
+          minAutoBitrate: 0
+        });
+
+        hlsRef.current = hls;
+
+        // HLS Events
+        hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+          console.log('📋 HLS manifest parsed:', data);
+          setHlsLevels(data.levels);
+          setCurrentLevel(hls.currentLevel);
+          setHlsReady(true);
+          
+          if (resumeTime > 0) {
+            console.log(`⏭️ Setting resume time: ${resumeTime}s`);
+            video.currentTime = resumeTime;
+          }
+        });
+
+        hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+          console.log(`📊 Quality switched to: ${data.level} (${data.width}x${data.height})`);
+          setCurrentLevel(data.level);
+        });
+
+        hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+          console.log(`📦 Fragment loaded: ${data.frag.sn} (${data.frag.url})`);
+        });
+
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          console.error('❌ HLS Error:', data);
+          
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.log('🔄 Network error, trying to recover...');
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                console.log('🔄 Media error, trying to recover...');
+                hls.recoverMediaError();
+                break;
+              default:
+                console.log('💥 Fatal error, destroying HLS...');
+                setError(`HLS Error: ${data.details}`);
+                hls.destroy();
+                break;
+            }
+          }
+        });
+
+        // Load HLS source
+        hls.loadSource(src);
+        hls.attachMedia(video);
+
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        console.log('✅ Native HLS support detected');
+        video.src = src;
+        setHlsReady(true);
+      } else {
+        console.error('❌ HLS not supported');
+        setError('HLS streaming not supported in this browser');
+      }
     };
 
+    initializeHLS();
+
+    // Video event listeners
     const handleLoadedMetadata = () => {
       console.log('📊 Video metadata loaded:', {
         duration: video.duration,
@@ -109,16 +245,6 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
         videoHeight: video.videoHeight
       });
       setDuration(video.duration);
-      setHlsReady(true);
-      
-      if (resumeTime > 0 && resumeTime < video.duration) {
-        console.log(`⏭️ Resuming from: ${resumeTime}s`);
-        video.currentTime = resumeTime;
-      }
-    };
-
-    const handleCanPlay = () => {
-      console.log('✅ Video can play');
       setIsLoading(false);
     };
 
@@ -151,12 +277,12 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
     };
 
     const handleWaiting = () => {
-      console.log('⏳ Video waiting for data');
+      console.log('⏳ Video buffering...');
       setIsLoading(true);
     };
 
-    const handlePlaying = () => {
-      console.log('🎬 Video playing smoothly');
+    const handleCanPlay = () => {
+      console.log('✅ Video can play');
       setIsLoading(false);
     };
 
@@ -174,10 +300,10 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
             errorMessage = 'Network error while loading video';
             break;
           case error.MEDIA_ERR_DECODE:
-            errorMessage = 'Video decode error';
+            errorMessage = 'Video decode error - codec not supported';
             break;
           case error.MEDIA_ERR_SRC_NOT_SUPPORTED:
-            errorMessage = 'Video format not supported';
+            errorMessage = 'Video format not supported by browser';
             break;
         }
       }
@@ -198,29 +324,30 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
     };
 
     // Add event listeners
-    video.addEventListener('loadstart', handleLoadStart);
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
-    video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('progress', handleProgress);
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
     video.addEventListener('waiting', handleWaiting);
-    video.addEventListener('playing', handlePlaying);
+    video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('error', handleError);
     video.addEventListener('ended', handleEnded);
 
     return () => {
       // Cleanup
-      video.removeEventListener('loadstart', handleLoadStart);
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+      
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('progress', handleProgress);
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
       video.removeEventListener('waiting', handleWaiting);
-      video.removeEventListener('playing', handlePlaying);
+      video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('error', handleError);
       video.removeEventListener('ended', handleEnded);
     };
@@ -342,6 +469,14 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
     }
   };
 
+  const changeQuality = (levelIndex: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = levelIndex;
+      setCurrentLevel(levelIndex);
+      console.log(`🎯 Quality changed to level ${levelIndex}`);
+    }
+  };
+
   const formatTime = (time: number) => {
     const hours = Math.floor(time / 3600);
     const minutes = Math.floor((time % 3600) / 60);
@@ -351,6 +486,13 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     }
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const getQualityLabel = (level: any) => {
+    if (level.height) {
+      return `${level.height}p`;
+    }
+    return `${Math.round(level.bitrate / 1000)}k`;
   };
 
   return (
@@ -367,6 +509,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
         playsInline
         preload="metadata"
         crossOrigin="anonymous"
+        muted={false}
       />
 
       {/* Loading Overlay */}
@@ -374,8 +517,10 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
           <div className="text-center">
             <Loader2 className="h-12 w-12 text-white animate-spin mx-auto mb-4" />
-            <p className="text-white mb-2">Đang tải video HLS...</p>
-            <p className="text-gray-400 text-sm">Browser đang tự động load segments</p>
+            <p className="text-white mb-2">Đang tải HLS stream...</p>
+            <p className="text-gray-400 text-sm">
+              {hlsRef.current ? 'HLS.js đang load segments' : 'Khởi tạo HLS player'}
+            </p>
           </div>
         </div>
       )}
@@ -387,6 +532,15 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
             <div className="text-red-400 text-6xl mb-4">⚠️</div>
             <h3 className="text-white text-xl font-bold mb-2">Lỗi phát video</h3>
             <p className="text-gray-300 mb-4">{error}</p>
+            <div className="space-y-2 mb-4">
+              <p className="text-gray-400 text-sm">Có thể do:</p>
+              <ul className="text-gray-400 text-xs space-y-1">
+                <li>• Video codec không tương thích</li>
+                <li>• HLS segments bị lỗi</li>
+                <li>• Kết nối mạng không ổn định</li>
+                <li>• Server FFmpeg chưa hoàn thành</li>
+              </ul>
+            </div>
             <button
               onClick={() => {
                 setError(null);
@@ -411,8 +565,13 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
           <div className="flex items-center justify-between">
             <h3 className="text-white font-semibold">{title}</h3>
             <div className="flex items-center space-x-2 text-sm text-gray-300">
-              <span>HLS Streaming</span>
+              <span>HLS.js Streaming</span>
               <div className={`w-2 h-2 rounded-full ${hlsReady ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
+              {hlsLevels.length > 0 && (
+                <span className="text-xs">
+                  {hlsLevels.length} qualities
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -523,6 +682,23 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
                 <option value={1.5}>1.5x</option>
                 <option value={2}>2x</option>
               </select>
+
+              {/* Quality Selector */}
+              {hlsLevels.length > 0 && (
+                <select
+                  value={currentLevel}
+                  onChange={(e) => changeQuality(parseInt(e.target.value))}
+                  className="bg-gray-700 text-white text-sm rounded px-2 py-1"
+                  title="Video Quality"
+                >
+                  <option value={-1}>Auto</option>
+                  {hlsLevels.map((level, index) => (
+                    <option key={index} value={index}>
+                      {getQualityLabel(level)}
+                    </option>
+                  ))}
+                </select>
+              )}
 
               <button
                 onClick={toggleFullscreen}

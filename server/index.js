@@ -43,11 +43,11 @@ try {
   console.error('❌ FFmpeg configuration error:', error.message);
 }
 
-// Enhanced CORS configuration
+// Enhanced CORS configuration for HLS
 app.use(cors({
   origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Range'],
   credentials: true
 }));
 
@@ -124,21 +124,29 @@ const rateLimit = (maxRequests = 10, windowMs = 60000) => {
   };
 };
 
-// Serve static files with proper HLS headers
+// CRITICAL: Enhanced HLS static file serving with proper headers
 app.use('/segments', express.static(SEGMENTS_DIR, {
   setHeaders: (res, filePath) => {
+    // Set CORS headers for all files
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
+    
     if (filePath.endsWith('.m3u8')) {
+      // HLS Manifest files
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
+      console.log(`📋 Serving HLS manifest: ${path.basename(filePath)}`);
     } else if (filePath.endsWith('.ts')) {
+      // HLS Segment files
       res.setHeader('Content-Type', 'video/mp2t');
       res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache segments for 1 year
+      res.setHeader('Accept-Ranges', 'bytes');
+      console.log(`📦 Serving HLS segment: ${path.basename(filePath)}`);
     }
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Range');
-    res.setHeader('Accept-Ranges', 'bytes');
   }
 }));
 
@@ -228,7 +236,7 @@ app.get('/', (req, res) => {
       path: process.env.FFMPEG_PATH || 'system',
       status: 'configured'
     },
-    features: ['Video Upload', 'FFmpeg HLS Segmentation', 'Native Browser HLS', 'Watch Progress'],
+    features: ['Video Upload', 'FFmpeg HLS Segmentation', 'HLS.js Compatible', 'Watch Progress'],
     endpoints: {
       uploadVideo: 'POST /api/upload-video',
       getVideo: 'GET /api/video/:videoId',
@@ -336,7 +344,7 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
   }
 });
 
-// FFmpeg video processing function - FIXED for HLS
+// FIXED FFmpeg HLS processing with browser-compatible settings
 async function processVideoWithFFmpeg(videoId, videoPath, duration) {
   const client = await pool.connect();
   
@@ -356,27 +364,42 @@ async function processVideoWithFFmpeg(videoId, videoPath, duration) {
       ['processing', videoId]
     );
 
-    console.log(`🔧 FFmpeg HLS segmentation: 6s segments`);
+    console.log(`🔧 FFmpeg HLS segmentation: 6s segments, browser-compatible`);
     console.log(`📁 Output directory: ${videoSegmentsDir}`);
     console.log(`📁 Segment pattern: ${segmentPattern}`);
     
     await new Promise((resolve, reject) => {
-      // CORRECT FFmpeg HLS command
+      // OPTIMIZED FFmpeg command for browser compatibility
       const command = ffmpeg(videoPath)
-        .videoCodec('libx264')           // Video codec
-        .audioCodec('aac')               // Audio codec
+        // Video settings - browser compatible
+        .videoCodec('libx264')           // H.264 codec (widely supported)
+        .audioCodec('aac')               // AAC audio (widely supported)
         .addOption('-preset', 'fast')    // Encoding speed
         .addOption('-crf', '23')         // Quality (lower = better)
-        .addOption('-sc_threshold', '0') // Disable scene change detection
-        .addOption('-g', '48')           // GOP size (keyframe every 48 frames)
+        .addOption('-profile:v', 'baseline') // H.264 baseline profile (max compatibility)
+        .addOption('-level', '3.0')      // H.264 level 3.0 (mobile compatible)
+        .addOption('-pix_fmt', 'yuv420p') // Pixel format (widely supported)
+        
+        // Audio settings
+        .addOption('-ar', '44100')       // Audio sample rate
+        .addOption('-ac', '2')           // Stereo audio
+        .addOption('-b:a', '128k')       // Audio bitrate
+        
+        // HLS settings
+        .addOption('-f', 'hls')          // HLS format
+        .addOption('-hls_time', '6')     // 6-second segments
+        .addOption('-hls_list_size', '0') // Keep all segments
+        .addOption('-hls_segment_type', 'mpegts') // MPEG-TS segments
+        .addOption('-hls_segment_filename', segmentPattern)
+        .addOption('-hls_flags', 'independent_segments+program_date_time')
+        
+        // Keyframe settings for better seeking
+        .addOption('-g', '48')           // GOP size (keyframe every 48 frames = 2 seconds at 24fps)
         .addOption('-keyint_min', '48')  // Min keyframe interval
-        .addOption('-hls_time', '6')     // Segment duration (6 seconds)
-        .addOption('-hls_list_size', '0') // Keep all segments in playlist
-        .addOption('-hls_segment_type', 'mpegts') // Use MPEG-TS format
-        .addOption('-hls_segment_filename', segmentPattern) // Segment file pattern
-        .addOption('-hls_flags', 'independent_segments') // Each segment is independent
-        .format('hls')                   // Output format
-        .output(hlsManifestPath)         // Output manifest file
+        .addOption('-sc_threshold', '0') // Disable scene change detection
+        
+        // Output
+        .output(hlsManifestPath)
         .on('start', (commandLine) => {
           console.log('🎬 FFmpeg command:', commandLine);
         })
@@ -418,6 +441,17 @@ async function processVideoWithFFmpeg(videoId, videoPath, duration) {
 
     console.log(`📁 Found ${tsFiles.length} HLS segment files`);
 
+    // Verify manifest file exists and is valid
+    const manifestExists = await fs.pathExists(hlsManifestPath);
+    if (!manifestExists) {
+      throw new Error('HLS manifest file was not created');
+    }
+
+    // Read and validate manifest
+    const manifestContent = await fs.readFile(hlsManifestPath, 'utf8');
+    console.log('📋 HLS Manifest preview:');
+    console.log(manifestContent.split('\n').slice(0, 10).join('\n'));
+
     // Clear existing segments for this video
     await client.query('DELETE FROM segments WHERE video_id = $1', [videoId]);
 
@@ -454,6 +488,7 @@ async function processVideoWithFFmpeg(videoId, videoPath, duration) {
     console.log(`📁 HLS manifest: ${hlsManifestPath}`);
     console.log(`📊 Total segments: ${tsFiles.length}`);
     console.log(`🌐 HLS URL: http://localhost:${PORT}/segments/${videoId}/playlist.m3u8`);
+    console.log(`🎯 Browser compatible: H.264 Baseline + AAC + HLS.js ready`);
 
   } catch (error) {
     console.error('❌ FFmpeg processing error:', error);
@@ -676,7 +711,7 @@ app.get('/api/health', async (req, res) => {
         path: process.env.FFMPEG_PATH || 'system',
         status: 'configured'
       },
-      features: ['Video Upload', 'FFmpeg HLS Segmentation', 'Native Browser HLS', 'PostgreSQL Storage', 'Watch Progress', 'Rate Limiting']
+      features: ['Video Upload', 'FFmpeg HLS Segmentation', 'HLS.js Compatible', 'PostgreSQL Storage', 'Watch Progress', 'Rate Limiting']
     });
   } catch (error) {
     res.status(500).json({
@@ -733,8 +768,9 @@ app.listen(PORT, () => {
   console.log(`🎬 FFmpeg: ${process.env.FFMPEG_PATH || 'system path'}`);
   console.log(`🌐 CORS enabled for: http://localhost:5173`);
   console.log(`🛡️  Rate limiting enabled`);
-  console.log(`📡 HLS streaming ready!`);
-  console.log(`\n🎯 HLS URLs will be: http://localhost:${PORT}/segments/{videoId}/playlist.m3u8`);
+  console.log(`📡 HLS streaming ready with HLS.js support!`);
+  console.log(`\n🎯 HLS URLs: http://localhost:${PORT}/segments/{videoId}/playlist.m3u8`);
+  console.log(`🎬 Browser compatibility: H.264 Baseline + AAC + HLS.js`);
 });
 
 // Graceful shutdown
