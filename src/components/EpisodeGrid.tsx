@@ -14,6 +14,19 @@ const EpisodeGrid: React.FC<EpisodeGridProps> = ({ episodes, onPlayEpisode }) =>
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
+  // Safe rating formatter
+  const formatRating = (rating: any): string => {
+    if (rating === null || rating === undefined) return '0.0';
+    if (typeof rating === 'string') {
+      const parsed = parseFloat(rating);
+      return isNaN(parsed) ? '0.0' : parsed.toFixed(1);
+    }
+    if (typeof rating === 'number') {
+      return rating.toFixed(1);
+    }
+    return '0.0';
+  };
+
   return (
     <div>
       <h3 className="text-2xl font-bold text-white mb-6">Danh Sách Tập Phim</h3>
@@ -27,7 +40,7 @@ const EpisodeGrid: React.FC<EpisodeGridProps> = ({ episodes, onPlayEpisode }) =>
             {/* Thumbnail */}
             <div className="relative aspect-video overflow-hidden">
               <img
-                src={episode.thumbnail}
+                src={episode.thumbnail || 'https://images.pexels.com/photos/1181467/pexels-photo-1181467.jpeg?auto=compress&cs=tinysrgb&w=400'}
                 alt={episode.title}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
               />
@@ -47,7 +60,7 @@ const EpisodeGrid: React.FC<EpisodeGridProps> = ({ episodes, onPlayEpisode }) =>
               {/* Duration */}
               <div className="absolute bottom-2 right-2 bg-black/70 text-white px-2 py-1 rounded text-sm flex items-center space-x-1">
                 <Clock className="h-3 w-3" />
-                <span>{episode.duration}</span>
+                <span>{episode.duration || '24:00'}</span>
               </div>
 
               {/* Watch Status */}
@@ -80,10 +93,10 @@ const EpisodeGrid: React.FC<EpisodeGridProps> = ({ episodes, onPlayEpisode }) =>
               </p>
 
               <div className="flex items-center justify-between text-sm text-gray-400">
-                <span>{new Date(episode.releaseDate).toLocaleDateString('vi-VN')}</span>
+                <span>{episode.releaseDate ? new Date(episode.releaseDate).toLocaleDateString('vi-VN') : 'Chưa có ngày'}</span>
                 <div className="flex items-center space-x-1">
                   <span>⭐</span>
-                  <span>{episode.rating.toFixed(1)}</span>
+                  <span>{formatRating(episode.rating)}</span>
                 </div>
               </div>
 
@@ -103,7 +116,7 @@ const EpisodeGrid: React.FC<EpisodeGridProps> = ({ episodes, onPlayEpisode }) =>
                 {episode.hasCommentary && (
                   <span className="bg-orange-600/20 text-orange-300 px-2 py-1 rounded text-xs">Bình luận đạo diễn</span>
                 )}
-                {episode.guestCast && (
+                {episode.guestCast && episode.guestCast.length > 0 && (
                   <span className="bg-pink-600/20 text-pink-300 px-2 py-1 rounded text-xs">Khách mời đặc biệt</span>
                 )}
               </div>

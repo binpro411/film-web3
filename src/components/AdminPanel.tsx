@@ -57,6 +57,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
       const data = await response.json();
       if (data.success) {
         setSeries(data.series);
+        console.log('✅ Series loaded:', data.series.length);
       }
     } catch (error) {
       console.error('Failed to load series:', error);
@@ -73,6 +74,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
       const data = await response.json();
       if (data.success) {
         setEpisodes(data.episodes);
+        console.log('✅ Episodes loaded:', data.episodes.length);
       }
     } catch (error) {
       console.error('Failed to load episodes:', error);
@@ -112,6 +114,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
       const formData = new FormData();
       formData.append('video', file);
 
+      console.log('🎬 Starting video upload for episode:', episodeId);
+
       const response = await fetch(`http://localhost:3001/api/episodes/${episodeId}/upload-video`, {
         method: 'POST',
         body: formData
@@ -120,6 +124,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
       const data = await response.json();
       
       if (data.success) {
+        console.log('✅ Video upload successful:', data.videoId);
+        
         // Wait a moment for processing to start
         await new Promise(resolve => setTimeout(resolve, 2000));
         
@@ -153,8 +159,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
 
         if (data.success) {
           const video = data.video;
+          console.log('📊 Video status check:', video.status, `${video.processingProgress || 0}%`);
           
           if (video.status === 'completed') {
+            console.log('🎉 Video processing completed!');
             // Video processing completed, refresh episodes
             if (selectedSeries) {
               await loadEpisodes(selectedSeries.id);
@@ -169,6 +177,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
         attempts++;
         if (attempts < maxAttempts) {
           setTimeout(checkStatus, 5000); // Check every 5 seconds
+        } else {
+          console.log('⏰ Polling timeout reached');
         }
       } catch (error) {
         console.error('Status check error:', error);

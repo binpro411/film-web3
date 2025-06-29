@@ -152,7 +152,7 @@ function AppContent() {
               duration: ep.duration,
               thumbnail: ep.thumbnail,
               releaseDate: ep.release_date,
-              rating: ep.rating,
+              rating: parseFloat(ep.rating) || 0, // SAFE CONVERSION
               watched: false,
               watchProgress: 0,
               hasBehindScenes: ep.has_behind_scenes,
@@ -174,7 +174,7 @@ function AppContent() {
             duration: firstEpisode.duration,
             thumbnail: firstEpisode.thumbnail,
             releaseDate: firstEpisode.release_date,
-            rating: firstEpisode.rating,
+            rating: parseFloat(firstEpisode.rating) || 0, // SAFE CONVERSION
             watched: false,
             watchProgress: 0,
             hasBehindScenes: firstEpisode.has_behind_scenes,
@@ -236,7 +236,7 @@ function AppContent() {
               duration: ep.duration,
               thumbnail: ep.thumbnail,
               releaseDate: ep.release_date,
-              rating: ep.rating,
+              rating: parseFloat(ep.rating) || 0, // SAFE CONVERSION
               watched: false,
               watchProgress: 0,
               hasBehindScenes: ep.has_behind_scenes,
