@@ -37,6 +37,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
   const hlsRef = useRef<any>(null);
   const initializingRef = useRef(false);
   const resumeTimeSetRef = useRef(false);
+  const pendingResumeTimeRef = useRef<number>(0); // NEW: Store pending resume time
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -57,6 +58,15 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
   // Progress saving throttle
   const lastProgressSaveRef = useRef(0);
   const lastLocalProgressRef = useRef(0);
+
+  // Store resume time when it changes
+  useEffect(() => {
+    if (resumeTime > 0) {
+      pendingResumeTimeRef.current = resumeTime;
+      resumeTimeSetRef.current = false; // Reset flag when new resume time is provided
+      console.log(`📋 New resume time received: ${resumeTime}s`);
+    }
+  }, [resumeTime]);
 
   // Throttled progress save function
   const saveProgress = useCallback(async (progress: number, duration: number) => {
@@ -94,6 +104,25 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       updateWatchProgress(seriesId, episodeId, current, duration);
     }
   }, [seriesId, episodeId, updateWatchProgress]);
+
+  // Function to set resume time when video is ready
+  const applyResumeTime = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || resumeTimeSetRef.current || pendingResumeTimeRef.current <= 0) return;
+
+    if (video.duration > 0 && video.readyState >= 2) { // HAVE_CURRENT_DATA
+      const targetTime = Math.min(pendingResumeTimeRef.current, video.duration - 5); // Leave 5s buffer
+      
+      console.log(`⏭️ Applying resume time: ${targetTime}s (duration: ${video.duration}s)`);
+      
+      video.currentTime = targetTime;
+      resumeTimeSetRef.current = true;
+      pendingResumeTimeRef.current = 0; // Clear pending time
+      
+      // Update UI immediately
+      setCurrentTime(targetTime);
+    }
+  }, []);
 
   // Initialize HLS Player - ONLY ONCE
   useEffect(() => {
@@ -252,14 +281,29 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       setIsLoading(false);
       setLoadingStage('Metadata đã tải...');
 
-      // Set resume time AFTER metadata is loaded
-      if (resumeTime > 0 && !resumeTimeSetRef.current && video.duration > 0) {
-        console.log(`⏭️ Setting resume time: ${resumeTime}s`);
-        setTimeout(() => {
-          video.currentTime = resumeTime;
-          resumeTimeSetRef.current = true;
-        }, 500);
-      }
+      // Apply resume time after metadata is loaded
+      setTimeout(() => {
+        applyResumeTime();
+      }, 500);
+    };
+
+    const handleLoadedData = () => {
+      console.log('📊 Video data loaded, ready state:', video.readyState);
+      // Try to apply resume time when data is loaded
+      setTimeout(() => {
+        applyResumeTime();
+      }, 200);
+    };
+
+    const handleCanPlay = () => {
+      console.log('✅ Video can play, ready state:', video.readyState);
+      setIsLoading(false);
+      setLoadingStage('Có thể phát...');
+      
+      // Final attempt to apply resume time
+      setTimeout(() => {
+        applyResumeTime();
+      }, 100);
     };
 
     const handleTimeUpdate = () => {
@@ -297,12 +341,6 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       console.log('⏳ Video buffering...');
       setIsLoading(true);
       setLoadingStage('Đang buffer...');
-    };
-
-    const handleCanPlay = () => {
-      console.log('✅ Video can play');
-      setIsLoading(false);
-      setLoadingStage('Có thể phát...');
     };
 
     const handleError = (e: Event) => {
@@ -344,27 +382,24 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       onEnded?.();
     };
 
-    // Prevent seeking during initial load
     const handleSeeking = () => {
-      if (!resumeTimeSetRef.current && resumeTime > 0) {
-        // Allow initial resume seek
-        return;
-      }
       console.log('🔍 User seeking to:', video.currentTime);
     };
 
     const handleSeeked = () => {
       console.log('✅ Seek completed at:', video.currentTime);
+      setCurrentTime(video.currentTime);
     };
 
     // Add event listeners
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('loadeddata', handleLoadedData);
+    video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('progress', handleProgress);
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
     video.addEventListener('waiting', handleWaiting);
-    video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('error', handleError);
     video.addEventListener('ended', handleEnded);
     video.addEventListener('seeking', handleSeeking);
@@ -380,18 +415,19 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       }
       
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('loadeddata', handleLoadedData);
+      video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('progress', handleProgress);
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
       video.removeEventListener('waiting', handleWaiting);
-      video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('error', handleError);
       video.removeEventListener('ended', handleEnded);
       video.removeEventListener('seeking', handleSeeking);
       video.removeEventListener('seeked', handleSeeked);
     };
-  }, [src]); // ONLY depend on src
+  }, [src, applyResumeTime]); // Add applyResumeTime to dependencies
 
   // Auto-hide controls
   useEffect(() => {
@@ -570,6 +606,11 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
                 Đang thử lại... ({retryCount}/3)
               </p>
             )}
+            {pendingResumeTimeRef.current > 0 && (
+              <p className="text-blue-400 text-xs mt-2">
+                Sẽ tiếp tục từ {formatTime(pendingResumeTimeRef.current)}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -611,6 +652,11 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
             <div className="flex items-center space-x-2 text-sm text-gray-300">
               <span>HLS.js Streaming</span>
               <div className={`w-2 h-2 rounded-full ${playerReady ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
+              {pendingResumeTimeRef.current > 0 && (
+                <span className="text-blue-400 text-xs">
+                  Resume: {formatTime(pendingResumeTimeRef.current)}
+                </span>
+              )}
             </div>
           </div>
         </div>

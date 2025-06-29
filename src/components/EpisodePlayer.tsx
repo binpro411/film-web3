@@ -29,14 +29,15 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
   const [resumeProgress, setResumeProgress] = useState<any>(null);
   const [isLoadingVideo, setIsLoadingVideo] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [hasStartedWatching, setHasStartedWatching] = useState(false); // NEW: Track if user started watching
+  const [hasStartedWatching, setHasStartedWatching] = useState(false);
+  const [actualResumeTime, setActualResumeTime] = useState(0); // NEW: Actual resume time to pass to player
 
   const { user, getResumePrompt } = useAuth();
 
   // Refs để tránh infinite loop
   const loadedVideoRef = useRef<string | null>(null);
   const isLoadingRef = useRef(false);
-  const resumePromptCheckedRef = useRef(false); // NEW: Track if resume prompt was already checked
+  const resumePromptCheckedRef = useRef(false);
 
   // Memoize loadVideoData với proper dependencies
   const loadVideoData = useCallback(async () => {
@@ -99,8 +100,9 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
       if (loadedVideoRef.current !== videoKey) {
         loadedVideoRef.current = null;
         setVideoData(null);
-        setHasStartedWatching(false); // Reset watching state
-        resumePromptCheckedRef.current = false; // Reset resume prompt check
+        setHasStartedWatching(false);
+        resumePromptCheckedRef.current = false;
+        setActualResumeTime(0); // Reset resume time
         loadVideoData();
       }
     }
@@ -124,6 +126,9 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
         console.log('📋 Showing resume prompt for progress:', progress);
         setResumeProgress(progress);
         setShowResumePrompt(true);
+      } else {
+        // No resume prompt needed, start from beginning
+        setActualResumeTime(0);
       }
     }
   }, [user, series?.id, currentEpisode?.id, videoData?.id, getResumePrompt, showResumePrompt, hasStartedWatching]);
@@ -150,6 +155,7 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
       setLoadError(null);
       setHasStartedWatching(false);
       resumePromptCheckedRef.current = false;
+      setActualResumeTime(0);
     }
   }, [isOpen]);
 
@@ -164,6 +170,7 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
       loadedVideoRef.current = null; // Reset để load episode mới
       setHasStartedWatching(false); // Reset watching state
       resumePromptCheckedRef.current = false; // Reset resume prompt check
+      setActualResumeTime(0); // Reset resume time
       onEpisodeChange(nextEpisode);
     }
   };
@@ -173,6 +180,7 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
       loadedVideoRef.current = null; // Reset để load episode mới
       setHasStartedWatching(false); // Reset watching state
       resumePromptCheckedRef.current = false; // Reset resume prompt check
+      setActualResumeTime(0); // Reset resume time
       onEpisodeChange(prevEpisode);
     }
   };
@@ -195,19 +203,21 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
     loadedVideoRef.current = `${series.id}-${currentEpisode.number}`;
   };
 
-  // Handle resume video - CLOSE PROMPT and mark as started watching
+  // Handle resume video - SET ACTUAL RESUME TIME and close prompt
   const handleResumeVideo = () => {
-    console.log('▶️ User chose to resume video');
+    console.log('▶️ User chose to resume video at:', resumeProgress?.progress);
+    setActualResumeTime(resumeProgress?.progress || 0); // Set the actual resume time
     setShowResumePrompt(false);
-    setHasStartedWatching(true); // Mark as started watching
+    setHasStartedWatching(true);
   };
 
-  // Handle start from beginning - CLOSE PROMPT and mark as started watching
+  // Handle start from beginning - SET RESUME TIME TO 0 and close prompt
   const handleStartFromBeginning = () => {
     console.log('🔄 User chose to start from beginning');
+    setActualResumeTime(0); // Explicitly set to 0
     setShowResumePrompt(false);
     setResumeProgress(null);
-    setHasStartedWatching(true); // Mark as started watching
+    setHasStartedWatching(true);
   };
 
   // Handle video time update - mark as started watching after 5 seconds
@@ -313,8 +323,8 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
               episodeId={currentEpisode.id}
               videoId={videoData.id}
               onEnded={handleVideoEnded}
-              onTimeUpdate={handleVideoTimeUpdate} // NEW: Track time updates
-              resumeTime={resumeProgress && !showResumePrompt && !hasStartedWatching ? resumeProgress.progress : 0}
+              onTimeUpdate={handleVideoTimeUpdate}
+              resumeTime={actualResumeTime} // Pass the actual resume time
               className="w-full h-full"
             />
           ) : (
