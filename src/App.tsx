@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Header from './components/Header';
 import Hero from './components/Hero';
 import MovieGrid from './components/MovieGrid';
@@ -13,8 +13,6 @@ import PaymentModal from './components/PaymentModal';
 import AdminPanel from './components/AdminPanel';
 import Footer from './components/Footer';
 import { AuthProvider } from './contexts/AuthContext';
-import { movies } from './data/movies';
-import { series } from './data/series';
 import { Movie, Series, Episode, VipPlan } from './types';
 
 function AppContent() {
@@ -32,37 +30,159 @@ function AppContent() {
   const [selectedVipPlan, setSelectedVipPlan] = useState<VipPlan | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Data states
+  const [seriesData, setSeriesData] = useState<Series[]>([]);
+  const [moviesData, setMoviesData] = useState<Movie[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Load data from PostgreSQL
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        
+        // Load series from PostgreSQL
+        const seriesResponse = await fetch('http://localhost:3001/api/series');
+        const seriesResult = await seriesResponse.json();
+        
+        if (seriesResult.success) {
+          // Convert series data to movie format for compatibility
+          const convertedMovies: Movie[] = seriesResult.series.map((series: any) => ({
+            id: series.id,
+            title: series.title,
+            titleVietnamese: series.title_vietnamese,
+            description: series.description,
+            year: series.year,
+            duration: series.total_duration || '24 phút/tập',
+            rating: series.rating,
+            genre: series.genre,
+            director: series.director,
+            studio: series.studio,
+            thumbnail: series.thumbnail,
+            banner: series.banner,
+            trailer: series.trailer || '',
+            featured: series.featured,
+            new: series.new,
+            popular: series.popular,
+            type: 'series' as const,
+            episodeCount: series.episode_count,
+            airDay: series.air_day as any,
+            airTime: series.air_time
+          }));
+
+          setMoviesData(convertedMovies);
+          setSeriesData(seriesResult.series);
+        }
+      } catch (error) {
+        console.error('Failed to load data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
   // Filter movies based on search query
   const filteredMovies = useMemo(() => {
-    if (!searchQuery.trim()) return movies;
+    if (!searchQuery.trim()) return moviesData;
     
     const query = searchQuery.toLowerCase();
-    return movies.filter(movie => 
+    return moviesData.filter(movie => 
       movie.title.toLowerCase().includes(query) ||
       movie.titleVietnamese.includes(query) ||
       movie.genre.some(g => g.toLowerCase().includes(query)) ||
       movie.director.toLowerCase().includes(query)
     );
-  }, [searchQuery]);
+  }, [searchQuery, moviesData]);
 
   // Categorize movies
   const featuredMovies = filteredMovies.filter(movie => movie.featured);
   const newMovies = filteredMovies.filter(movie => movie.new);
-  const scheduledMovies = filteredMovies.filter(movie => movie.airDay); // Movies with air schedule
+  const scheduledMovies = filteredMovies.filter(movie => movie.airDay);
   const allMovies = filteredMovies;
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
   };
 
-  const handlePlayMovie = (movie: Movie) => {
+  const handlePlayMovie = async (movie: Movie) => {
     if (movie.type === 'series') {
-      // Find the corresponding series and play first episode
-      const seriesData = series.find(s => s.id === `series-${movie.id}` || s.id === movie.id);
-      if (seriesData && seriesData.episodes.length > 0) {
-        setSelectedSeries(seriesData);
-        setSelectedEpisode(seriesData.episodes[0]);
-        setIsEpisodePlayerOpen(true);
+      try {
+        // Load series details from PostgreSQL
+        const response = await fetch(`http://localhost:3001/api/series/${movie.id}`);
+        const result = await response.json();
+        
+        if (result.success && result.series.episodes.length > 0) {
+          const seriesData = result.series;
+          const firstEpisode = seriesData.episodes[0];
+          
+          // Convert to expected format
+          const convertedSeries: Series = {
+            id: seriesData.id,
+            title: seriesData.title,
+            titleVietnamese: seriesData.title_vietnamese,
+            description: seriesData.description,
+            year: seriesData.year,
+            rating: seriesData.rating,
+            genre: seriesData.genre,
+            director: seriesData.director,
+            studio: seriesData.studio,
+            thumbnail: seriesData.thumbnail,
+            banner: seriesData.banner,
+            trailer: seriesData.trailer || '',
+            featured: seriesData.featured,
+            new: seriesData.new,
+            popular: seriesData.popular,
+            episodeCount: seriesData.episode_count,
+            totalDuration: seriesData.total_duration,
+            status: seriesData.status,
+            episodes: seriesData.episodes.map((ep: any) => ({
+              id: ep.id,
+              number: ep.number,
+              title: ep.title,
+              titleVietnamese: ep.title_vietnamese,
+              description: ep.description,
+              duration: ep.duration,
+              thumbnail: ep.thumbnail,
+              releaseDate: ep.release_date,
+              rating: ep.rating,
+              watched: false,
+              watchProgress: 0,
+              hasBehindScenes: ep.has_behind_scenes,
+              hasCommentary: ep.has_commentary,
+              guestCast: ep.guest_cast || [],
+              directorNotes: ep.director_notes
+            })),
+            comments: [],
+            similarSeries: [],
+            topEpisodes: []
+          };
+
+          const convertedEpisode: Episode = {
+            id: firstEpisode.id,
+            number: firstEpisode.number,
+            title: firstEpisode.title,
+            titleVietnamese: firstEpisode.title_vietnamese,
+            description: firstEpisode.description,
+            duration: firstEpisode.duration,
+            thumbnail: firstEpisode.thumbnail,
+            releaseDate: firstEpisode.release_date,
+            rating: firstEpisode.rating,
+            watched: false,
+            watchProgress: 0,
+            hasBehindScenes: firstEpisode.has_behind_scenes,
+            hasCommentary: firstEpisode.has_commentary,
+            guestCast: firstEpisode.guest_cast || [],
+            directorNotes: firstEpisode.director_notes
+          };
+
+          setSelectedSeries(convertedSeries);
+          setSelectedEpisode(convertedEpisode);
+          setIsEpisodePlayerOpen(true);
+        }
+      } catch (error) {
+        console.error('Failed to load series details:', error);
       }
     } else {
       setSelectedMovie(movie);
@@ -72,12 +192,62 @@ function AppContent() {
     setIsSeriesDetailOpen(false);
   };
 
-  const handleShowDetails = (movie: Movie) => {
+  const handleShowDetails = async (movie: Movie) => {
     if (movie.type === 'series') {
-      const seriesData = series.find(s => s.id === `series-${movie.id}` || s.id === movie.id);
-      if (seriesData) {
-        setSelectedSeries(seriesData);
-        setIsSeriesDetailOpen(true);
+      try {
+        // Load series details from PostgreSQL
+        const response = await fetch(`http://localhost:3001/api/series/${movie.id}`);
+        const result = await response.json();
+        
+        if (result.success) {
+          const seriesData = result.series;
+          
+          const convertedSeries: Series = {
+            id: seriesData.id,
+            title: seriesData.title,
+            titleVietnamese: seriesData.title_vietnamese,
+            description: seriesData.description,
+            year: seriesData.year,
+            rating: seriesData.rating,
+            genre: seriesData.genre,
+            director: seriesData.director,
+            studio: seriesData.studio,
+            thumbnail: seriesData.thumbnail,
+            banner: seriesData.banner,
+            trailer: seriesData.trailer || '',
+            featured: seriesData.featured,
+            new: seriesData.new,
+            popular: seriesData.popular,
+            episodeCount: seriesData.episode_count,
+            totalDuration: seriesData.total_duration,
+            status: seriesData.status,
+            episodes: seriesData.episodes.map((ep: any) => ({
+              id: ep.id,
+              number: ep.number,
+              title: ep.title,
+              titleVietnamese: ep.title_vietnamese,
+              description: ep.description,
+              duration: ep.duration,
+              thumbnail: ep.thumbnail,
+              releaseDate: ep.release_date,
+              rating: ep.rating,
+              watched: false,
+              watchProgress: 0,
+              hasBehindScenes: ep.has_behind_scenes,
+              hasCommentary: ep.has_commentary,
+              guestCast: ep.guest_cast || [],
+              directorNotes: ep.director_notes
+            })),
+            comments: [],
+            similarSeries: [],
+            topEpisodes: []
+          };
+
+          setSelectedSeries(convertedSeries);
+          setIsSeriesDetailOpen(true);
+        }
+      } catch (error) {
+        console.error('Failed to load series details:', error);
       }
     } else {
       setSelectedMovie(movie);
@@ -139,6 +309,17 @@ function AppContent() {
     setIsPaymentModalOpen(false);
     setSelectedVipPlan(null);
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-white text-xl">Đang tải dữ liệu từ PostgreSQL...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-900">
@@ -219,7 +400,7 @@ function AppContent() {
         isOpen={isSeriesDetailOpen}
         onClose={handleCloseSeriesDetail}
         onPlayEpisode={handlePlayEpisode}
-        allSeries={series}
+        allSeries={seriesData}
       />
 
       <EpisodePlayer

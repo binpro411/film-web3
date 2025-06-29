@@ -5,18 +5,18 @@ interface VideoUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onVideoUploaded: (videoData: any) => void;
+  episodeId: string;
   episodeNumber?: number;
   seriesTitle?: string;
-  seriesId?: string;
 }
 
 const VideoUploadModal: React.FC<VideoUploadModalProps> = ({ 
   isOpen, 
   onClose, 
   onVideoUploaded,
+  episodeId,
   episodeNumber = 1,
-  seriesTitle = "Phàm Nhân Tu Tiên",
-  seriesId = "series-1"
+  seriesTitle = "Series"
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -47,9 +47,6 @@ const VideoUploadModal: React.FC<VideoUploadModalProps> = ({
       // Create FormData for upload
       const formData = new FormData();
       formData.append('video', file);
-      formData.append('seriesId', seriesId);
-      formData.append('episodeNumber', episodeNumber.toString());
-      formData.append('title', `${seriesTitle} - Tập ${episodeNumber}`);
 
       // Upload video with progress tracking
       const xhr = new XMLHttpRequest();
@@ -71,7 +68,7 @@ const VideoUploadModal: React.FC<VideoUploadModalProps> = ({
         };
         xhr.onerror = () => reject(new Error('Upload failed'));
         
-        xhr.open('POST', 'http://localhost:3001/api/upload-video');
+        xhr.open('POST', `http://localhost:3001/api/episodes/${episodeId}/upload-video`);
         xhr.send(formData);
       });
 
@@ -105,10 +102,6 @@ const VideoUploadModal: React.FC<VideoUploadModalProps> = ({
           const video = data.video;
           
           if (video.status === 'completed') {
-            // Get segments info
-            const segmentsResponse = await fetch(`http://localhost:3001/api/video/${videoId}/segments`);
-            const segmentsData = await segmentsResponse.json();
-
             setProcessingStage('Hoàn thành!');
             setSegmentationProgress(100);
 
@@ -119,8 +112,7 @@ const VideoUploadModal: React.FC<VideoUploadModalProps> = ({
               duration: formatDuration(video.duration),
               fileSize: video.fileSize,
               hlsUrl: `http://localhost:3001${video.hlsUrl}`,
-              segments: segmentsData.segments || [],
-              totalSegments: segmentsData.totalSegments || 0,
+              totalSegments: video.totalSegments || 0,
               uploadedAt: new Date().toISOString(),
               quality: '1080p',
               codec: 'H.264',
@@ -310,12 +302,12 @@ const VideoUploadModal: React.FC<VideoUploadModalProps> = ({
               <div className="mt-6 bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
                 <h4 className="text-blue-400 font-medium mb-2 flex items-center space-x-2">
                   <Database className="h-4 w-4" />
-                  <span>Hệ thống streaming thật:</span>
+                  <span>Hệ thống streaming PostgreSQL:</span>
                 </h4>
                 <ul className="text-blue-300 text-sm space-y-1">
-                  <li>• 📹 Upload video lên server với SQLite database</li>
+                  <li>• 📹 Upload video lên server với PostgreSQL database</li>
                   <li>• 🔄 FFmpeg tự động chia thành segments .ts</li>
-                  <li>• 📊 Lưu metadata và segments vào database</li>
+                  <li>• 📊 Lưu metadata và segments vào PostgreSQL</li>
                   <li>• 🎬 Tạo HLS playlist (.m3u8) cho streaming</li>
                   <li>• 📡 Progressive loading từng segment 6 giây</li>
                 </ul>
@@ -373,7 +365,7 @@ const VideoUploadModal: React.FC<VideoUploadModalProps> = ({
               <div className="bg-gray-800 rounded-lg p-4 mb-6">
                 <h4 className="text-white font-semibold mb-3 flex items-center space-x-2">
                   <Database className="h-5 w-5 text-green-400" />
-                  <span>Database Storage</span>
+                  <span>PostgreSQL Storage</span>
                 </h4>
                 <div className="text-sm space-y-1">
                   <div className="flex justify-between">
@@ -402,7 +394,7 @@ const VideoUploadModal: React.FC<VideoUploadModalProps> = ({
                   className="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-semibold transition-colors flex items-center justify-center space-x-2"
                 >
                   <CheckCircle className="h-5 w-5" />
-                  <span>Xác Nhận & Thêm Vào Series</span>
+                  <span>Xác Nhận & Thêm Vào Episode</span>
                 </button>
                 <button
                   onClick={() => setUploadedVideo(null)}
