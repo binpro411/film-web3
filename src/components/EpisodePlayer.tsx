@@ -29,12 +29,14 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
   const [resumeProgress, setResumeProgress] = useState<any>(null);
   const [isLoadingVideo, setIsLoadingVideo] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [hasStartedWatching, setHasStartedWatching] = useState(false); // NEW: Track if user started watching
 
   const { user, getResumePrompt } = useAuth();
 
   // Refs để tránh infinite loop
   const loadedVideoRef = useRef<string | null>(null);
   const isLoadingRef = useRef(false);
+  const resumePromptCheckedRef = useRef(false); // NEW: Track if resume prompt was already checked
 
   // Memoize loadVideoData với proper dependencies
   const loadVideoData = useCallback(async () => {
@@ -97,21 +99,34 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
       if (loadedVideoRef.current !== videoKey) {
         loadedVideoRef.current = null;
         setVideoData(null);
+        setHasStartedWatching(false); // Reset watching state
+        resumePromptCheckedRef.current = false; // Reset resume prompt check
         loadVideoData();
       }
     }
   }, [isOpen, series?.id, currentEpisode?.number, loadVideoData]);
 
-  // Check resume prompt - SEPARATE useEffect
+  // Check resume prompt - ONLY ONCE when video loads and user hasn't started watching
   useEffect(() => {
-    if (user && series && currentEpisode && videoData && !showResumePrompt) {
+    if (
+      user && 
+      series && 
+      currentEpisode && 
+      videoData && 
+      !showResumePrompt && 
+      !hasStartedWatching && 
+      !resumePromptCheckedRef.current
+    ) {
       const { shouldPrompt, progress } = getResumePrompt(series.id, currentEpisode.id);
+      resumePromptCheckedRef.current = true; // Mark as checked
+      
       if (shouldPrompt && progress) {
+        console.log('📋 Showing resume prompt for progress:', progress);
         setResumeProgress(progress);
         setShowResumePrompt(true);
       }
     }
-  }, [user, series?.id, currentEpisode?.id, videoData?.id, getResumePrompt, showResumePrompt]);
+  }, [user, series?.id, currentEpisode?.id, videoData?.id, getResumePrompt, showResumePrompt, hasStartedWatching]);
 
   // Autoplay countdown effect
   useEffect(() => {
@@ -133,6 +148,8 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
       setShowResumePrompt(false);
       setResumeProgress(null);
       setLoadError(null);
+      setHasStartedWatching(false);
+      resumePromptCheckedRef.current = false;
     }
   }, [isOpen]);
 
@@ -145,6 +162,8 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
   const handleNextEpisode = () => {
     if (nextEpisode) {
       loadedVideoRef.current = null; // Reset để load episode mới
+      setHasStartedWatching(false); // Reset watching state
+      resumePromptCheckedRef.current = false; // Reset resume prompt check
       onEpisodeChange(nextEpisode);
     }
   };
@@ -152,6 +171,8 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
   const handlePrevEpisode = () => {
     if (prevEpisode) {
       loadedVideoRef.current = null; // Reset để load episode mới
+      setHasStartedWatching(false); // Reset watching state
+      resumePromptCheckedRef.current = false; // Reset resume prompt check
       onEpisodeChange(prevEpisode);
     }
   };
@@ -174,13 +195,27 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
     loadedVideoRef.current = `${series.id}-${currentEpisode.number}`;
   };
 
+  // Handle resume video - CLOSE PROMPT and mark as started watching
   const handleResumeVideo = () => {
+    console.log('▶️ User chose to resume video');
     setShowResumePrompt(false);
+    setHasStartedWatching(true); // Mark as started watching
   };
 
+  // Handle start from beginning - CLOSE PROMPT and mark as started watching
   const handleStartFromBeginning = () => {
+    console.log('🔄 User chose to start from beginning');
     setShowResumePrompt(false);
     setResumeProgress(null);
+    setHasStartedWatching(true); // Mark as started watching
+  };
+
+  // Handle video time update - mark as started watching after 5 seconds
+  const handleVideoTimeUpdate = (currentTime: number, duration: number) => {
+    if (currentTime > 5 && !hasStartedWatching) {
+      console.log('🎬 User started watching (5+ seconds)');
+      setHasStartedWatching(true);
+    }
   };
 
   const canUpload = user?.isAdmin;
@@ -200,8 +235,8 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black">
-        {/* Resume Prompt Overlay */}
-        {showResumePrompt && resumeProgress && (
+        {/* Resume Prompt Overlay - ONLY show if not started watching */}
+        {showResumePrompt && resumeProgress && !hasStartedWatching && (
           <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-30">
             <div className="bg-gray-900 rounded-xl p-8 max-w-md text-center border border-gray-700">
               <Clock className="h-12 w-12 text-blue-400 mx-auto mb-4" />
@@ -278,7 +313,8 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
               episodeId={currentEpisode.id}
               videoId={videoData.id}
               onEnded={handleVideoEnded}
-              resumeTime={resumeProgress && !showResumePrompt ? resumeProgress.progress : 0}
+              onTimeUpdate={handleVideoTimeUpdate} // NEW: Track time updates
+              resumeTime={resumeProgress && !showResumePrompt && !hasStartedWatching ? resumeProgress.progress : 0}
               className="w-full h-full"
             />
           ) : (
