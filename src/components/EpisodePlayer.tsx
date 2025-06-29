@@ -30,7 +30,8 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
   const [isLoadingVideo, setIsLoadingVideo] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasStartedWatching, setHasStartedWatching] = useState(false);
-  const [actualResumeTime, setActualResumeTime] = useState(0); // NEW: Actual resume time to pass to player
+  const [actualResumeTime, setActualResumeTime] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0); // Add refresh key
 
   const { user, getResumePrompt } = useAuth();
 
@@ -89,24 +90,24 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
       setIsLoadingVideo(false);
       isLoadingRef.current = false;
     }
-  }, [series?.id, currentEpisode?.number, isOpen]);
+  }, [series?.id, currentEpisode?.number, isOpen, refreshKey]); // Add refreshKey
 
-  // Load video data khi episode thay đổi - CHỈ 1 LẦN
+  // Load video data khi episode thay đổi hoặc refresh
   useEffect(() => {
     if (isOpen && series && currentEpisode) {
       const videoKey = `${series.id}-${currentEpisode.number}`;
       
-      // Reset nếu episode khác
-      if (loadedVideoRef.current !== videoKey) {
+      // Reset nếu episode khác hoặc refresh
+      if (loadedVideoRef.current !== videoKey || refreshKey > 0) {
         loadedVideoRef.current = null;
         setVideoData(null);
         setHasStartedWatching(false);
         resumePromptCheckedRef.current = false;
-        setActualResumeTime(0); // Reset resume time
+        setActualResumeTime(0);
         loadVideoData();
       }
     }
-  }, [isOpen, series?.id, currentEpisode?.number, loadVideoData]);
+  }, [isOpen, series?.id, currentEpisode?.number, loadVideoData, refreshKey]);
 
   // Check resume prompt - ONLY ONCE when video loads and user hasn't started watching
   useEffect(() => {
@@ -156,6 +157,7 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
       setHasStartedWatching(false);
       resumePromptCheckedRef.current = false;
       setActualResumeTime(0);
+      setRefreshKey(0); // Reset refresh key
     }
   }, [isOpen]);
 
@@ -171,6 +173,7 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
       setHasStartedWatching(false); // Reset watching state
       resumePromptCheckedRef.current = false; // Reset resume prompt check
       setActualResumeTime(0); // Reset resume time
+      setRefreshKey(prev => prev + 1); // Trigger refresh
       onEpisodeChange(nextEpisode);
     }
   };
@@ -181,6 +184,7 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
       setHasStartedWatching(false); // Reset watching state
       resumePromptCheckedRef.current = false; // Reset resume prompt check
       setActualResumeTime(0); // Reset resume time
+      setRefreshKey(prev => prev + 1); // Trigger refresh
       onEpisodeChange(prevEpisode);
     }
   };
@@ -201,6 +205,7 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
       status: 'completed'
     });
     loadedVideoRef.current = `${series.id}-${currentEpisode.number}`;
+    setRefreshKey(prev => prev + 1); // Trigger refresh
   };
 
   // Handle resume video - SET ACTUAL RESUME TIME and close prompt
@@ -307,6 +312,7 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
                 <button
                   onClick={() => {
                     loadedVideoRef.current = null;
+                    setRefreshKey(prev => prev + 1);
                     loadVideoData();
                   }}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors"
@@ -536,9 +542,9 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
           isOpen={isUploadModalOpen}
           onClose={() => setIsUploadModalOpen(false)}
           onVideoUploaded={handleVideoUploaded}
+          episodeId={currentEpisode.id}
           episodeNumber={currentEpisode.number}
           seriesTitle={series.title}
-          seriesId={series.id}
         />
       )}
     </>

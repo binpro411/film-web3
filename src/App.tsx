@@ -34,54 +34,60 @@ function AppContent() {
   const [seriesData, setSeriesData] = useState<Series[]>([]);
   const [moviesData, setMoviesData] = useState<Movie[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [dataRefreshKey, setDataRefreshKey] = useState(0); // Add refresh key
 
   // Load data from PostgreSQL
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        
-        // Load series from PostgreSQL
-        const seriesResponse = await fetch('http://localhost:3001/api/series');
-        const seriesResult = await seriesResponse.json();
-        
-        if (seriesResult.success) {
-          // Convert series data to movie format for compatibility
-          const convertedMovies: Movie[] = seriesResult.series.map((series: any) => ({
-            id: series.id,
-            title: series.title,
-            titleVietnamese: series.title_vietnamese,
-            description: series.description,
-            year: series.year,
-            duration: series.total_duration || '24 phút/tập',
-            rating: series.rating,
-            genre: series.genre,
-            director: series.director,
-            studio: series.studio,
-            thumbnail: series.thumbnail,
-            banner: series.banner,
-            trailer: series.trailer || '',
-            featured: series.featured,
-            new: series.new,
-            popular: series.popular,
-            type: 'series' as const,
-            episodeCount: series.episode_count,
-            airDay: series.air_day as any,
-            airTime: series.air_time
-          }));
+  const loadData = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Load series from PostgreSQL
+      const seriesResponse = await fetch('http://localhost:3001/api/series');
+      const seriesResult = await seriesResponse.json();
+      
+      if (seriesResult.success) {
+        // Convert series data to movie format for compatibility
+        const convertedMovies: Movie[] = seriesResult.series.map((series: any) => ({
+          id: series.id,
+          title: series.title,
+          titleVietnamese: series.title_vietnamese,
+          description: series.description,
+          year: series.year,
+          duration: series.total_duration || '24 phút/tập',
+          rating: series.rating,
+          genre: series.genre,
+          director: series.director,
+          studio: series.studio,
+          thumbnail: series.thumbnail,
+          banner: series.banner,
+          trailer: series.trailer || '',
+          featured: series.featured,
+          new: series.new,
+          popular: series.popular,
+          type: 'series' as const,
+          episodeCount: series.episode_count,
+          airDay: series.air_day as any,
+          airTime: series.air_time
+        }));
 
-          setMoviesData(convertedMovies);
-          setSeriesData(seriesResult.series);
-        }
-      } catch (error) {
-        console.error('Failed to load data:', error);
-      } finally {
-        setIsLoading(false);
+        setMoviesData(convertedMovies);
+        setSeriesData(seriesResult.series);
       }
-    };
+    } catch (error) {
+      console.error('Failed to load data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
+  useEffect(() => {
     loadData();
-  }, []);
+  }, [dataRefreshKey]);
+
+  // Function to refresh data (can be called from admin panel)
+  const refreshData = () => {
+    setDataRefreshKey(prev => prev + 1);
+  };
 
   // Filter movies based on search query
   const filteredMovies = useMemo(() => {
@@ -299,6 +305,12 @@ function AppContent() {
     setIsAdminPanelOpen(true);
   };
 
+  const handleCloseAdmin = () => {
+    setIsAdminPanelOpen(false);
+    // Refresh data when admin panel closes
+    refreshData();
+  };
+
   const handleSelectVipPlan = (plan: VipPlan) => {
     setSelectedVipPlan(plan);
     setIsVipModalOpen(false);
@@ -430,7 +442,7 @@ function AppContent() {
 
       <AdminPanel
         isOpen={isAdminPanelOpen}
-        onClose={() => setIsAdminPanelOpen(false)}
+        onClose={handleCloseAdmin}
       />
     </div>
   );
