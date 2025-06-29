@@ -144,8 +144,8 @@ app.use('/segments', express.static(SEGMENTS_DIR, {
 
 app.use('/videos', express.static(VIDEOS_DIR));
 
-// Apply rate limiting to API routes
-app.use('/api/progress', rateLimit(6, 60000)); // 6 requests per minute
+// Apply rate limiting to progress API
+app.use('/api/progress', rateLimit(5, 60000)); // 5 requests per minute
 
 // Utility functions
 const createSafeFilename = (originalName) => {
@@ -516,10 +516,19 @@ app.get('/api/video/:videoId', async (req, res) => {
   }
 });
 
-// Get videos by series and episode - SIMPLIFIED
+// Get videos by series and episode - SIMPLIFIED (NO INFINITE LOOP)
 app.get('/api/videos/:seriesId/:episodeNumber', async (req, res) => {
   const { seriesId, episodeNumber } = req.params;
-  console.log(`🔍 Looking for video: ${seriesId} episode ${episodeNumber}`);
+  
+  // ONLY log once per unique request
+  const requestKey = `${seriesId}-${episodeNumber}`;
+  const now = Date.now();
+  const lastRequest = requestTracker.get(requestKey) || 0;
+  
+  if (now - lastRequest > 5000) { // Only log every 5 seconds
+    console.log(`🔍 Looking for video: ${seriesId} episode ${episodeNumber}`);
+    requestTracker.set(requestKey, now);
+  }
 
   try {
     const result = await pool.query(
@@ -535,7 +544,15 @@ app.get('/api/videos/:seriesId/:episodeNumber', async (req, res) => {
     }
 
     const video = result.rows[0];
-    console.log(`✅ Found video: ${video.title}`);
+    
+    // Only log success once per unique video
+    const videoKey = `found-${video.id}`;
+    const lastFound = requestTracker.get(videoKey) || 0;
+    
+    if (now - lastFound > 10000) { // Only log every 10 seconds
+      console.log(`✅ Found video: ${video.title}`);
+      requestTracker.set(videoKey, now);
+    }
 
     res.json({
       success: true,
@@ -558,7 +575,7 @@ app.get('/api/videos/:seriesId/:episodeNumber', async (req, res) => {
   }
 });
 
-// Update watch progress with proper validation and throttling
+// Update watch progress - FIXED validation
 app.post('/api/progress', async (req, res) => {
   const { userId, videoId, progress, duration } = req.body;
   
@@ -571,11 +588,19 @@ app.post('/api/progress', async (req, res) => {
   }
 
   // Ensure duration is not null or zero
-  const validDuration = Math.max(duration || 1, 1); // Minimum 1 second
-  const validProgress = Math.max(progress || 0, 0);
-  const percentage = (validProgress / validDuration) * 100;
+  const validDuration = Math.max(parseFloat(duration) || 1, 1); // Minimum 1 second
+  const validProgress = Math.max(parseFloat(progress) || 0, 0);
+  const percentage = Math.min((validProgress / validDuration) * 100, 100);
 
-  console.log(`📊 Updating progress: User ${userId}, Video ${videoId}, ${percentage.toFixed(1)}% (${validProgress}/${validDuration}s)`);
+  // Throttle logging
+  const logKey = `progress-${userId}-${videoId}`;
+  const now = Date.now();
+  const lastLog = requestTracker.get(logKey) || 0;
+  
+  if (now - lastLog > 30000) { // Only log every 30 seconds
+    console.log(`📊 Updating progress: User ${userId}, Video ${videoId}, ${percentage.toFixed(1)}% (${validProgress}/${validDuration}s)`);
+    requestTracker.set(logKey, now);
+  }
 
   try {
     await pool.query(
@@ -590,7 +615,11 @@ app.post('/api/progress', async (req, res) => {
       [userId, videoId, validProgress, validDuration, percentage]
     );
 
-    console.log('✅ Progress updated successfully');
+    // Only log success occasionally
+    if (now - lastLog > 30000) {
+      console.log('✅ Progress updated successfully');
+    }
+    
     res.json({ success: true, message: 'Progress updated' });
 
   } catch (error) {

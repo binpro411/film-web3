@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { X, ChevronLeft, ChevronRight, Upload, Play, Clock } from 'lucide-react';
 import { Series, Episode } from '../types';
 import HLSVideoPlayer from './HLSVideoPlayer';
@@ -28,9 +28,65 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
   const [showResumePrompt, setShowResumePrompt] = useState(false);
   const [resumeProgress, setResumeProgress] = useState<any>(null);
   const [isLoadingVideo, setIsLoadingVideo] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const { user, getResumePrompt } = useAuth();
 
+  // Memoize loadVideoData để tránh infinite loop
+  const loadVideoData = useCallback(async () => {
+    if (!series || !currentEpisode) return;
+
+    setIsLoadingVideo(true);
+    setLoadError(null);
+    
+    try {
+      console.log(`🔍 Loading video for ${series.id} episode ${currentEpisode.number}`);
+      
+      const response = await fetch(`http://localhost:3001/api/videos/${series.id}/${currentEpisode.number}`);
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log('✅ Video data loaded:', data.video);
+        setVideoData({
+          id: data.video.id,
+          title: data.video.title,
+          hlsUrl: `http://localhost:3001${data.video.hlsUrl}`,
+          duration: data.video.duration,
+          status: data.video.status,
+          totalSegments: data.video.totalSegments
+        });
+      } else {
+        console.log('❌ No video found:', data.error);
+        setVideoData(null);
+      }
+    } catch (error) {
+      console.error('❌ Failed to load video:', error);
+      setLoadError('Không thể tải thông tin video');
+      setVideoData(null);
+    } finally {
+      setIsLoadingVideo(false);
+    }
+  }, [series?.id, currentEpisode?.number]); // Chỉ depend vào ID và episode number
+
+  // Load video data khi episode thay đổi
+  useEffect(() => {
+    if (isOpen && series && currentEpisode) {
+      loadVideoData();
+    }
+  }, [isOpen, loadVideoData]); // Depend vào loadVideoData đã memoized
+
+  // Check resume prompt - SEPARATE useEffect
+  useEffect(() => {
+    if (user && series && currentEpisode && videoData) {
+      const { shouldPrompt, progress } = getResumePrompt(series.id, currentEpisode.id);
+      if (shouldPrompt && progress) {
+        setResumeProgress(progress);
+        setShowResumePrompt(true);
+      }
+    }
+  }, [user, series?.id, currentEpisode?.id, videoData?.id, getResumePrompt]);
+
+  // Autoplay countdown effect
   useEffect(() => {
     if (showAutoplayCountdown && countdown > 0) {
       const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
@@ -41,50 +97,6 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
       setCountdown(10);
     }
   }, [showAutoplayCountdown, countdown]);
-
-  // Load video data when episode changes
-  useEffect(() => {
-    if (series && currentEpisode) {
-      loadVideoData();
-      
-      // Check for resume prompt
-      if (user) {
-        const { shouldPrompt, progress } = getResumePrompt(series.id, currentEpisode.id);
-        if (shouldPrompt && progress) {
-          setResumeProgress(progress);
-          setShowResumePrompt(true);
-        }
-      }
-    }
-  }, [series, currentEpisode, user, getResumePrompt]);
-
-  const loadVideoData = async () => {
-    if (!series || !currentEpisode) return;
-
-    setIsLoadingVideo(true);
-    try {
-      // Try to load video from server
-      const response = await fetch(`http://localhost:3001/api/videos/${series.id}/${currentEpisode.number}`);
-      const data = await response.json();
-      
-      if (data.success) {
-        setVideoData({
-          id: data.video.id,
-          title: data.video.title,
-          hlsUrl: `http://localhost:3001${data.video.hlsUrl}`,
-          duration: data.video.duration,
-          status: data.video.status
-        });
-      } else {
-        setVideoData(null);
-      }
-    } catch (error) {
-      console.error('Failed to load video:', error);
-      setVideoData(null);
-    } finally {
-      setIsLoadingVideo(false);
-    }
-  };
 
   if (!isOpen || !series || !currentEpisode) return null;
 
@@ -198,6 +210,20 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
               <div className="text-center">
                 <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
                 <p className="text-white text-xl">Đang kiểm tra video...</p>
+              </div>
+            </div>
+          ) : loadError ? (
+            <div className="relative w-full h-full bg-gradient-to-br from-red-900 via-gray-900 to-black flex items-center justify-center">
+              <div className="text-center max-w-2xl mx-auto p-8">
+                <div className="text-red-400 text-6xl mb-4">⚠️</div>
+                <h1 className="text-4xl font-bold text-white mb-4">Lỗi tải video</h1>
+                <p className="text-xl text-gray-300 mb-8">{loadError}</p>
+                <button
+                  onClick={loadVideoData}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors"
+                >
+                  Thử lại
+                </button>
               </div>
             </div>
           ) : hasVideo ? (
