@@ -18,6 +18,31 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Configure FFmpeg paths
+if (process.env.FFMPEG_PATH) {
+  ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH);
+  console.log(`🎬 FFmpeg path set to: ${process.env.FFMPEG_PATH}`);
+}
+
+if (process.env.FFPROBE_PATH) {
+  ffmpeg.setFfprobePath(process.env.FFPROBE_PATH);
+  console.log(`🔍 FFprobe path set to: ${process.env.FFPROBE_PATH}`);
+}
+
+// Test FFmpeg installation
+try {
+  ffmpeg.getAvailableFormats((err, formats) => {
+    if (err) {
+      console.error('❌ FFmpeg test failed:', err.message);
+      console.log('💡 Please check your FFmpeg installation and paths in .env file');
+    } else {
+      console.log('✅ FFmpeg is working correctly');
+    }
+  });
+} catch (error) {
+  console.error('❌ FFmpeg configuration error:', error.message);
+}
+
 // Enhanced CORS configuration
 app.use(cors({
   origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
@@ -97,11 +122,23 @@ const getVideoMetadata = (videoPath) => {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(videoPath, (err, metadata) => {
       if (err) {
+        console.error('❌ FFprobe error:', err);
         reject(err);
       } else {
         const duration = metadata.format.duration || 0;
         const size = metadata.format.size || 0;
-        resolve({ duration, size });
+        const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
+        const audioStream = metadata.streams.find(stream => stream.codec_type === 'audio');
+        
+        resolve({ 
+          duration, 
+          size,
+          width: videoStream?.width || 0,
+          height: videoStream?.height || 0,
+          videoCodec: videoStream?.codec_name || 'unknown',
+          audioCodec: audioStream?.codec_name || 'unknown',
+          bitrate: metadata.format.bit_rate || 0
+        });
       }
     });
   });
@@ -121,7 +158,7 @@ const storage = multer.diskStorage({
 const upload = multer({ 
   storage,
   limits: { 
-    fileSize: 10 * 1024 * 1024 * 1024, // 10GB limit
+    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024 * 1024, // 10GB default
     fieldSize: 50 * 1024 * 1024
   },
   fileFilter: (req, file, cb) => {
@@ -147,6 +184,10 @@ app.get('/', (req, res) => {
     status: 'running',
     timestamp: new Date().toISOString(),
     database: 'PostgreSQL',
+    ffmpeg: {
+      path: process.env.FFMPEG_PATH || 'system',
+      status: 'configured'
+    },
     features: ['Video Upload', 'FFmpeg HLS Segmentation', 'Progressive Streaming', 'Watch Progress'],
     endpoints: {
       uploadVideo: 'POST /api/upload-video',
@@ -192,9 +233,12 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
 
     // Get video metadata using FFmpeg
     console.log('🔍 Analyzing video with FFmpeg...');
-    const { duration, size } = await getVideoMetadata(videoPath);
+    const metadata = await getVideoMetadata(videoPath);
     
-    console.log(`⏱️  Duration: ${duration}s, Size: ${size} bytes`);
+    console.log(`⏱️  Duration: ${metadata.duration}s`);
+    console.log(`📐 Resolution: ${metadata.width}x${metadata.height}`);
+    console.log(`🎥 Video Codec: ${metadata.videoCodec}`);
+    console.log(`🔊 Audio Codec: ${metadata.audioCodec}`);
 
     // Insert video record into PostgreSQL
     const insertVideoQuery = `
@@ -211,8 +255,8 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
       parseInt(episodeNumber),
       uploadedFile.originalname,
       uploadedFile.filename,
-      duration,
-      size,
+      metadata.duration,
+      metadata.size,
       videoPath,
       'processing'
     ]);
@@ -222,16 +266,19 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
 
     // Start FFmpeg processing in background
     console.log('🔄 Starting FFmpeg segmentation...');
-    processVideoWithFFmpeg(videoId, videoPath, duration);
+    processVideoWithFFmpeg(videoId, videoPath, metadata.duration);
 
     res.json({
       success: true,
       videoId,
       message: 'Video uploaded successfully. FFmpeg processing started...',
       metadata: {
-        duration: Math.floor(duration),
-        fileSize: size,
-        estimatedSegments: Math.ceil(duration / (process.env.SEGMENT_DURATION || 6)),
+        duration: Math.floor(metadata.duration),
+        fileSize: metadata.size,
+        resolution: `${metadata.width}x${metadata.height}`,
+        videoCodec: metadata.videoCodec,
+        audioCodec: metadata.audioCodec,
+        estimatedSegments: Math.ceil(metadata.duration / (process.env.SEGMENT_DURATION || 6)),
         originalFilename: uploadedFile.originalname,
         safeFilename: uploadedFile.filename
       }
@@ -269,12 +316,13 @@ async function processVideoWithFFmpeg(videoId, videoPath, duration) {
     );
 
     // FFmpeg command for HLS segmentation
-    const segmentDuration = process.env.SEGMENT_DURATION || 6;
+    const segmentDuration = parseInt(process.env.SEGMENT_DURATION) || 6;
     
-    console.log(`🔧 FFmpeg command: Segmenting video into ${segmentDuration}s chunks`);
+    console.log(`🔧 FFmpeg segmentation: ${segmentDuration}s segments`);
+    console.log(`📁 Output directory: ${videoSegmentsDir}`);
     
     await new Promise((resolve, reject) => {
-      ffmpeg(videoPath)
+      const command = ffmpeg(videoPath)
         .outputOptions([
           '-c:v libx264',           // Video codec
           '-c:a aac',               // Audio codec
@@ -291,17 +339,23 @@ async function processVideoWithFFmpeg(videoId, videoPath, duration) {
         ])
         .output(hlsManifestPath)
         .on('start', (commandLine) => {
-          console.log('🎬 FFmpeg started:', commandLine);
+          console.log('🎬 FFmpeg command:', commandLine);
         })
         .on('progress', async (progress) => {
           const percent = Math.round(progress.percent || 0);
-          console.log(`⏳ Processing: ${percent}%`);
-          
-          // Update progress in database
-          await client.query(
-            'UPDATE videos SET processing_progress = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-            [percent, videoId]
-          );
+          if (percent > 0 && percent <= 100) {
+            console.log(`⏳ Processing: ${percent}% (${progress.timemark})`);
+            
+            // Update progress in database
+            try {
+              await client.query(
+                'UPDATE videos SET processing_progress = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                [percent, videoId]
+              );
+            } catch (dbError) {
+              console.error('❌ Progress update error:', dbError);
+            }
+          }
         })
         .on('end', async () => {
           console.log('✅ FFmpeg processing completed');
@@ -310,8 +364,10 @@ async function processVideoWithFFmpeg(videoId, videoPath, duration) {
         .on('error', (err) => {
           console.error('❌ FFmpeg error:', err);
           reject(err);
-        })
-        .run();
+        });
+
+      // Start the conversion
+      command.run();
     });
 
     // Read generated segments and save to database
@@ -327,14 +383,14 @@ async function processVideoWithFFmpeg(videoId, videoPath, duration) {
       const stats = await fs.stat(filePath);
       
       // Calculate segment duration (approximate)
-      const segmentDuration = i === tsFiles.length - 1 
+      const segmentDur = i === tsFiles.length - 1 
         ? duration - (i * segmentDuration) // Last segment might be shorter
         : segmentDuration;
 
       await client.query(
         `INSERT INTO segments (video_id, segment_number, filename, file_path, duration, file_size)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [videoId, i + 1, filename, filePath, segmentDuration, stats.size]
+        [videoId, i + 1, filename, filePath, segmentDur, stats.size]
       );
     }
 
@@ -569,6 +625,10 @@ app.get('/api/health', async (req, res) => {
         status: 'connected',
         timestamp: dbResult.rows[0].now
       },
+      ffmpeg: {
+        path: process.env.FFMPEG_PATH || 'system',
+        status: 'configured'
+      },
       features: ['Video Upload', 'FFmpeg HLS Segmentation', 'PostgreSQL Storage', 'Watch Progress']
     });
   } catch (error) {
@@ -623,7 +683,7 @@ app.listen(PORT, () => {
   console.log(`📁 Segments: ${SEGMENTS_DIR}`);
   console.log(`📁 Videos: ${VIDEOS_DIR}`);
   console.log(`🐘 Database: PostgreSQL (${process.env.DB_NAME})`);
-  console.log(`🎬 FFmpeg: Ready for video processing`);
+  console.log(`🎬 FFmpeg: ${process.env.FFMPEG_PATH || 'system path'}`);
   console.log(`🌐 CORS enabled for: http://localhost:5173`);
   console.log(`📡 Ready to accept video uploads!`);
 });
