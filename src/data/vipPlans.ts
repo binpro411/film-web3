@@ -3,50 +3,49 @@ import { VipPlan, PaymentMethod } from '../types';
 export const vipPlans: VipPlan[] = [
   {
     id: 'monthly',
-    name: 'Gói Tháng',
+    name: 'VIP Tháng',
     duration: 1,
     price: 99000,
-    originalPrice: 129000,
-    discount: 23,
     features: [
-      'Xem phim chất lượng HD',
-      'Không quảng cáo',
-      'Tải xuống offline',
-      'Xem trên 2 thiết bị',
-      'Phụ đề đa ngôn ngữ'
+      'Xem không giới hạn tất cả nội dung',
+      'Chất lượng video Full HD (1080p)',
+      'Không có quảng cáo',
+      'Tải xuống để xem offline',
+      'Hỗ trợ khách hàng ưu tiên'
     ]
   },
   {
     id: 'quarterly',
-    name: 'Gói 3 Tháng',
+    name: 'VIP 3 Tháng',
     duration: 3,
     price: 249000,
-    originalPrice: 387000,
-    discount: 36,
+    originalPrice: 297000,
+    discount: 16,
     popular: true,
     features: [
-      'Tất cả tính năng gói tháng',
-      'Xem phim chất lượng 4K',
-      'Xem trên 4 thiết bị',
-      'Nội dung độc quyền',
-      'Ưu tiên hỗ trợ khách hàng',
-      'Tiết kiệm 36%'
+      'Tất cả tính năng VIP Tháng',
+      'Chất lượng video 4K (khi có)',
+      'Truy cập sớm nội dung mới',
+      'Xem đồng thời trên 3 thiết bị',
+      'Tính năng xem cùng bạn bè',
+      'Tiết kiệm 16% so với VIP Tháng'
     ]
   },
   {
     id: 'yearly',
-    name: 'Gói Năm',
+    name: 'VIP Năm',
     duration: 12,
     price: 799000,
-    originalPrice: 1548000,
-    discount: 48,
+    originalPrice: 1188000,
+    discount: 33,
     features: [
-      'Tất cả tính năng gói 3 tháng',
-      'Xem phim chất lượng 8K',
-      'Xem không giới hạn thiết bị',
-      'Truy cập sớm nội dung mới',
-      'Tặng kèm merchandise',
-      'Tiết kiệm 48%'
+      'Tất cả tính năng VIP 3 Tháng',
+      'Chất lượng video 8K (khi có)',
+      'Nội dung độc quyền VIP',
+      'Xem đồng thời không giới hạn',
+      'Quà tặng sinh nhật đặc biệt',
+      'Tiết kiệm 33% so với VIP Tháng',
+      'Ưu tiên hỗ trợ 24/7'
     ]
   }
 ];
@@ -54,23 +53,23 @@ export const vipPlans: VipPlan[] = [
 export const paymentMethods: PaymentMethod[] = [
   {
     id: 'momo',
-    name: 'MoMo',
+    name: 'Ví MoMo',
     icon: '💳',
-    qrCode: 'https://images.pexels.com/photos/8867482/pexels-photo-8867482.jpeg?auto=compress&cs=tinysrgb&w=300',
-    accountInfo: 'Số điện thoại: 0123456789'
-  },
-  {
-    id: 'zalopay',
-    name: 'ZaloPay',
-    icon: '💰',
-    qrCode: 'https://images.pexels.com/photos/8867482/pexels-photo-8867482.jpeg?auto=compress&cs=tinysrgb&w=300',
-    accountInfo: 'Số điện thoại: 0123456789'
+    qrCode: 'https://images.pexels.com/photos/4386321/pexels-photo-4386321.jpeg?auto=compress&cs=tinysrgb&w=300',
+    accountInfo: 'Quét mã QR hoặc chuyển khoản đến số điện thoại: 0123456789'
   },
   {
     id: 'banking',
     name: 'Chuyển khoản ngân hàng',
     icon: '🏦',
-    qrCode: 'https://images.pexels.com/photos/8867482/pexels-photo-8867482.jpeg?auto=compress&cs=tinysrgb&w=300',
-    accountInfo: 'STK: 1234567890 - Ngân hàng Vietcombank'
+    qrCode: 'https://images.pexels.com/photos/4386321/pexels-photo-4386321.jpeg?auto=compress&cs=tinysrgb&w=300',
+    accountInfo: 'Vietcombank - STK: 1234567890 - Chủ TK: ANIMESTREAM'
+  },
+  {
+    id: 'zalopay',
+    name: 'ZaloPay',
+    icon: '💰',
+    qrCode: 'https://images.pexels.com/photos/4386321/pexels-photo-4386321.jpeg?auto=compress&cs=tinysrgb&w=300',
+    accountInfo: 'Quét mã QR hoặc chuyển khoản đến số điện thoại: 0123456789'
   }
 ];
