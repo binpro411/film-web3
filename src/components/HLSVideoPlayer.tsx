@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Play, Pause, Volume2, VolumeX, Maximize, SkipBack, SkipForward, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -36,21 +36,63 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
   const [showControls, setShowControls] = useState(true);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [error, setError] = useState<string | null>(null);
+  const [hlsReady, setHlsReady] = useState(false);
 
   const { user, updateWatchProgress } = useAuth();
 
   // Progress saving throttle
-  const [lastProgressSave, setLastProgressSave] = useState(0);
+  const lastProgressSaveRef = useRef(0);
+  const lastLocalProgressRef = useRef(0);
+
+  // Throttled progress save function
+  const saveProgress = useCallback(async (progress: number, duration: number) => {
+    if (!user || !videoId || duration < 1) return;
+
+    const now = Date.now();
+    if (now - lastProgressSaveRef.current < 10000) return; // Only save every 10 seconds
+
+    lastProgressSaveRef.current = now;
+
+    try {
+      await fetch('http://localhost:3001/api/progress', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          videoId,
+          progress,
+          duration
+        })
+      });
+    } catch (error) {
+      console.error('Failed to save progress:', error);
+    }
+  }, [user, videoId]);
+
+  // Throttled local progress update
+  const updateLocalProgress = useCallback((current: number, duration: number) => {
+    const now = Date.now();
+    if (now - lastLocalProgressRef.current < 5000) return; // Only update every 5 seconds
+
+    lastLocalProgressRef.current = now;
+
+    if (seriesId && episodeId) {
+      updateWatchProgress(seriesId, episodeId, current, duration);
+    }
+  }, [seriesId, episodeId, updateWatchProgress]);
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || !src) return;
 
     console.log('🎬 Loading HLS video:', src);
 
     // Reset states
     setError(null);
     setIsLoading(true);
+    setHlsReady(false);
 
     // Set video source - Browser will handle HLS automatically
     video.src = src;
@@ -67,7 +109,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
         videoHeight: video.videoHeight
       });
       setDuration(video.duration);
-      setIsLoading(false);
+      setHlsReady(true);
       
       if (resumeTime > 0 && resumeTime < video.duration) {
         console.log(`⏭️ Resuming from: ${resumeTime}s`);
@@ -85,17 +127,9 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       setCurrentTime(current);
       onTimeUpdate?.(current, video.duration);
       
-      // Save progress every 10 seconds
-      const now = Date.now();
-      if (now - lastProgressSave > 10000) {
-        saveProgress(current, video.duration);
-        setLastProgressSave(now);
-      }
-      
-      // Update local progress every 5 seconds
-      if (seriesId && episodeId && Math.floor(current) % 5 === 0) {
-        updateWatchProgress(seriesId, episodeId, current, video.duration);
-      }
+      // Throttled progress saving
+      saveProgress(current, video.duration);
+      updateLocalProgress(current, video.duration);
     };
 
     const handleProgress = () => {
@@ -158,10 +192,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       
       // Save final progress
       saveProgress(video.duration, video.duration);
-      
-      if (seriesId && episodeId) {
-        updateWatchProgress(seriesId, episodeId, video.duration, video.duration);
-      }
+      updateLocalProgress(video.duration, video.duration);
       
       onEnded?.();
     };
@@ -193,28 +224,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       video.removeEventListener('error', handleError);
       video.removeEventListener('ended', handleEnded);
     };
-  }, [src, resumeTime, onTimeUpdate, onEnded, seriesId, episodeId, updateWatchProgress, lastProgressSave]);
-
-  const saveProgress = async (progress: number, duration: number) => {
-    if (!user || !videoId || duration < 1) return;
-
-    try {
-      await fetch('http://localhost:3001/api/progress', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userId: user.id,
-          videoId,
-          progress,
-          duration
-        })
-      });
-    } catch (error) {
-      console.error('Failed to save progress:', error);
-    }
-  };
+  }, [src, resumeTime, onTimeUpdate, onEnded, saveProgress, updateLocalProgress]);
 
   // Auto-hide controls
   useEffect(() => {
@@ -270,7 +280,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
 
   const togglePlay = () => {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || !hlsReady) return;
 
     if (isPlaying) {
       video.pause();
@@ -356,10 +366,11 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
         onClick={togglePlay}
         playsInline
         preload="metadata"
+        crossOrigin="anonymous"
       />
 
       {/* Loading Overlay */}
-      {isLoading && !error && (
+      {(isLoading || !hlsReady) && !error && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
           <div className="text-center">
             <Loader2 className="h-12 w-12 text-white animate-spin mx-auto mb-4" />
@@ -379,6 +390,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
             <button
               onClick={() => {
                 setError(null);
+                setHlsReady(false);
                 const video = videoRef.current;
                 if (video) {
                   video.load(); // Reload video
@@ -400,13 +412,13 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
             <h3 className="text-white font-semibold">{title}</h3>
             <div className="flex items-center space-x-2 text-sm text-gray-300">
               <span>HLS Streaming</span>
-              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+              <div className={`w-2 h-2 rounded-full ${hlsReady ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
             </div>
           </div>
         </div>
 
         {/* Center Play Button */}
-        {!isPlaying && !isLoading && !error && (
+        {!isPlaying && hlsReady && !error && (
           <div className="absolute inset-0 flex items-center justify-center">
             <button
               onClick={togglePlay}
@@ -455,7 +467,8 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
               
               <button
                 onClick={togglePlay}
-                className="bg-white text-black p-3 rounded-full hover:bg-gray-200 transition-colors"
+                disabled={!hlsReady}
+                className="bg-white text-black p-3 rounded-full hover:bg-gray-200 transition-colors disabled:opacity-50"
                 title="Play/Pause (Space)"
               >
                 {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 fill-current" />}

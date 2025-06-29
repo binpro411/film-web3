@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, ChevronLeft, ChevronRight, Upload, Play, Clock } from 'lucide-react';
 import { Series, Episode } from '../types';
 import HLSVideoPlayer from './HLSVideoPlayer';
@@ -32,10 +32,22 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
 
   const { user, getResumePrompt } = useAuth();
 
-  // Memoize loadVideoData để tránh infinite loop
-  const loadVideoData = useCallback(async () => {
-    if (!series || !currentEpisode) return;
+  // Refs để tránh infinite loop
+  const loadedVideoRef = useRef<string | null>(null);
+  const isLoadingRef = useRef(false);
 
+  // Memoize loadVideoData với proper dependencies
+  const loadVideoData = useCallback(async () => {
+    if (!series || !currentEpisode || !isOpen) return;
+
+    const videoKey = `${series.id}-${currentEpisode.number}`;
+    
+    // Tránh load lại video đã load
+    if (loadedVideoRef.current === videoKey || isLoadingRef.current) {
+      return;
+    }
+
+    isLoadingRef.current = true;
     setIsLoadingVideo(true);
     setLoadError(null);
     
@@ -47,44 +59,59 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
       
       if (data.success) {
         console.log('✅ Video data loaded:', data.video);
-        setVideoData({
+        
+        const newVideoData = {
           id: data.video.id,
           title: data.video.title,
           hlsUrl: `http://localhost:3001${data.video.hlsUrl}`,
           duration: data.video.duration,
           status: data.video.status,
           totalSegments: data.video.totalSegments
-        });
+        };
+        
+        setVideoData(newVideoData);
+        loadedVideoRef.current = videoKey; // Mark as loaded
+        
       } else {
         console.log('❌ No video found:', data.error);
         setVideoData(null);
+        loadedVideoRef.current = null;
       }
     } catch (error) {
       console.error('❌ Failed to load video:', error);
       setLoadError('Không thể tải thông tin video');
       setVideoData(null);
+      loadedVideoRef.current = null;
     } finally {
       setIsLoadingVideo(false);
+      isLoadingRef.current = false;
     }
-  }, [series?.id, currentEpisode?.number]); // Chỉ depend vào ID và episode number
+  }, [series?.id, currentEpisode?.number, isOpen]);
 
-  // Load video data khi episode thay đổi
+  // Load video data khi episode thay đổi - CHỈ 1 LẦN
   useEffect(() => {
     if (isOpen && series && currentEpisode) {
-      loadVideoData();
+      const videoKey = `${series.id}-${currentEpisode.number}`;
+      
+      // Reset nếu episode khác
+      if (loadedVideoRef.current !== videoKey) {
+        loadedVideoRef.current = null;
+        setVideoData(null);
+        loadVideoData();
+      }
     }
-  }, [isOpen, loadVideoData]); // Depend vào loadVideoData đã memoized
+  }, [isOpen, series?.id, currentEpisode?.number, loadVideoData]);
 
   // Check resume prompt - SEPARATE useEffect
   useEffect(() => {
-    if (user && series && currentEpisode && videoData) {
+    if (user && series && currentEpisode && videoData && !showResumePrompt) {
       const { shouldPrompt, progress } = getResumePrompt(series.id, currentEpisode.id);
       if (shouldPrompt && progress) {
         setResumeProgress(progress);
         setShowResumePrompt(true);
       }
     }
-  }, [user, series?.id, currentEpisode?.id, videoData?.id, getResumePrompt]);
+  }, [user, series?.id, currentEpisode?.id, videoData?.id, getResumePrompt, showResumePrompt]);
 
   // Autoplay countdown effect
   useEffect(() => {
@@ -98,6 +125,17 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
     }
   }, [showAutoplayCountdown, countdown]);
 
+  // Reset khi đóng modal
+  useEffect(() => {
+    if (!isOpen) {
+      loadedVideoRef.current = null;
+      setVideoData(null);
+      setShowResumePrompt(false);
+      setResumeProgress(null);
+      setLoadError(null);
+    }
+  }, [isOpen]);
+
   if (!isOpen || !series || !currentEpisode) return null;
 
   const currentIndex = series.episodes.findIndex(ep => ep.id === currentEpisode.id);
@@ -106,12 +144,14 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
 
   const handleNextEpisode = () => {
     if (nextEpisode) {
+      loadedVideoRef.current = null; // Reset để load episode mới
       onEpisodeChange(nextEpisode);
     }
   };
 
   const handlePrevEpisode = () => {
     if (prevEpisode) {
+      loadedVideoRef.current = null; // Reset để load episode mới
       onEpisodeChange(prevEpisode);
     }
   };
@@ -131,6 +171,7 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
       duration: uploadedVideoData.duration,
       status: 'completed'
     });
+    loadedVideoRef.current = `${series.id}-${currentEpisode.number}`;
   };
 
   const handleResumeVideo = () => {
@@ -219,7 +260,10 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
                 <h1 className="text-4xl font-bold text-white mb-4">Lỗi tải video</h1>
                 <p className="text-xl text-gray-300 mb-8">{loadError}</p>
                 <button
-                  onClick={loadVideoData}
+                  onClick={() => {
+                    loadedVideoRef.current = null;
+                    loadVideoData();
+                  }}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors"
                 >
                   Thử lại
@@ -391,7 +435,11 @@ const EpisodePlayer: React.FC<EpisodePlayerProps> = ({
                             ? 'bg-blue-600' 
                             : 'bg-gray-800 hover:bg-gray-700'
                         }`}
-                        onClick={() => onEpisodeChange(episode)}
+                        onClick={() => {
+                          if (episode.id !== currentEpisode.id) {
+                            onEpisodeChange(episode);
+                          }
+                        }}
                       >
                         <img
                           src={episode.thumbnail}
