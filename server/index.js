@@ -18,7 +18,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Configure FFmpeg paths
+// Configure FFmpeg paths with GPU acceleration
 if (process.env.FFMPEG_PATH) {
   ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH);
   console.log(`🎬 FFmpeg path set to: ${process.env.FFMPEG_PATH}`);
@@ -92,20 +92,56 @@ try {
   process.exit(1);
 }
 
-// Serve static files with proper headers
+// Serve static files with proper headers and throttling
 app.use('/segments', express.static(SEGMENTS_DIR, {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.m3u8')) {
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     } else if (filePath.endsWith('.ts')) {
       res.setHeader('Content-Type', 'video/mp2t');
+      res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache segments for 1 year
     }
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Accept-Ranges', 'bytes');
   }
 }));
 
 app.use('/videos', express.static(VIDEOS_DIR));
+
+// Rate limiting for segment requests
+const segmentRequestTracker = new Map();
+
+// Middleware to throttle segment loading
+const throttleSegments = (req, res, next) => {
+  const clientIP = req.ip || req.connection.remoteAddress;
+  const now = Date.now();
+  
+  if (!segmentRequestTracker.has(clientIP)) {
+    segmentRequestTracker.set(clientIP, { requests: [], lastRequest: now });
+  }
+  
+  const tracker = segmentRequestTracker.get(clientIP);
+  
+  // Clean old requests (older than 10 seconds)
+  tracker.requests = tracker.requests.filter(time => now - time < 10000);
+  
+  // Allow max 5 concurrent segment requests per 10 seconds
+  if (tracker.requests.length >= 5) {
+    const delay = Math.max(0, 2000 - (now - tracker.lastRequest));
+    if (delay > 0) {
+      setTimeout(() => next(), delay);
+      return;
+    }
+  }
+  
+  tracker.requests.push(now);
+  tracker.lastRequest = now;
+  next();
+};
+
+// Apply throttling to segment requests
+app.use('/segments/*.ts', throttleSegments);
 
 // Utility functions
 const createSafeFilename = (originalName) => {
@@ -186,9 +222,10 @@ app.get('/', (req, res) => {
     database: 'PostgreSQL',
     ffmpeg: {
       path: process.env.FFMPEG_PATH || 'system',
-      status: 'configured'
+      status: 'configured',
+      gpuAcceleration: process.env.ENABLE_GPU === 'true'
     },
-    features: ['Video Upload', 'FFmpeg HLS Segmentation', 'Progressive Streaming', 'Watch Progress'],
+    features: ['Video Upload', 'FFmpeg HLS Segmentation', 'Progressive Streaming', 'Watch Progress', 'GPU Acceleration'],
     endpoints: {
       uploadVideo: 'POST /api/upload-video',
       getVideo: 'GET /api/video/:videoId',
@@ -265,7 +302,7 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
     console.log(`💾 Video saved to PostgreSQL with ID: ${videoId}`);
 
     // Start FFmpeg processing in background
-    console.log('🔄 Starting FFmpeg segmentation...');
+    console.log('🔄 Starting FFmpeg segmentation with GPU acceleration...');
     processVideoWithFFmpeg(videoId, videoPath, metadata.duration);
 
     res.json({
@@ -295,7 +332,7 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
   }
 });
 
-// FFmpeg video processing function
+// FFmpeg video processing function with GPU acceleration
 async function processVideoWithFFmpeg(videoId, videoPath, duration) {
   const client = await pool.connect();
   
@@ -315,28 +352,60 @@ async function processVideoWithFFmpeg(videoId, videoPath, duration) {
       ['processing', videoId]
     );
 
-    // FFmpeg command for HLS segmentation
+    // FFmpeg command for HLS segmentation with GPU acceleration
     const segmentDuration = parseInt(process.env.SEGMENT_DURATION) || 6;
+    const enableGPU = process.env.ENABLE_GPU === 'true';
     
     console.log(`🔧 FFmpeg segmentation: ${segmentDuration}s segments`);
+    console.log(`🚀 GPU Acceleration: ${enableGPU ? 'ENABLED' : 'DISABLED'}`);
     console.log(`📁 Output directory: ${videoSegmentsDir}`);
     
     await new Promise((resolve, reject) => {
-      const command = ffmpeg(videoPath)
-        .outputOptions([
-          '-c:v libx264',           // Video codec
-          '-c:a aac',               // Audio codec
-          '-preset fast',           // Encoding speed
-          '-crf 23',                // Quality (lower = better)
-          '-sc_threshold 0',        // Disable scene change detection
-          '-g 48',                  // GOP size
-          '-keyint_min 48',         // Minimum keyframe interval
-          `-hls_time ${segmentDuration}`,  // Segment duration
-          '-hls_list_size 0',       // Keep all segments in playlist
-          '-hls_segment_type mpegts', // Segment format
-          `-hls_segment_filename ${segmentPattern}`, // Segment naming
-          '-f hls'                  // Output format
-        ])
+      let command = ffmpeg(videoPath);
+      
+      // GPU acceleration options
+      if (enableGPU) {
+        command = command
+          .inputOptions([
+            '-hwaccel auto',          // Auto hardware acceleration
+            '-hwaccel_device 0'       // Use first GPU device
+          ])
+          .outputOptions([
+            '-c:v h264_nvenc',        // NVIDIA GPU encoder
+            '-preset fast',           // Fast encoding preset
+            '-cq 23',                 // Constant quality
+            '-c:a aac',               // Audio codec
+            '-b:a 128k',              // Audio bitrate
+            '-sc_threshold 0',        // Disable scene change detection
+            '-g 48',                  // GOP size
+            '-keyint_min 48',         // Minimum keyframe interval
+            `-hls_time ${segmentDuration}`,
+            '-hls_list_size 0',
+            '-hls_segment_type mpegts',
+            `-hls_segment_filename ${segmentPattern}`,
+            '-f hls'
+          ]);
+      } else {
+        // CPU encoding fallback
+        command = command
+          .outputOptions([
+            '-c:v libx264',           // CPU encoder
+            '-preset fast',           // Fast encoding
+            '-crf 23',                // Quality
+            '-c:a aac',               // Audio codec
+            '-b:a 128k',              // Audio bitrate
+            '-sc_threshold 0',
+            '-g 48',
+            '-keyint_min 48',
+            `-hls_time ${segmentDuration}`,
+            '-hls_list_size 0',
+            '-hls_segment_type mpegts',
+            `-hls_segment_filename ${segmentPattern}`,
+            '-f hls'
+          ]);
+      }
+
+      command
         .output(hlsManifestPath)
         .on('start', (commandLine) => {
           console.log('🎬 FFmpeg command:', commandLine);
@@ -344,16 +413,18 @@ async function processVideoWithFFmpeg(videoId, videoPath, duration) {
         .on('progress', async (progress) => {
           const percent = Math.round(progress.percent || 0);
           if (percent > 0 && percent <= 100) {
-            console.log(`⏳ Processing: ${percent}% (${progress.timemark})`);
+            console.log(`⏳ Processing: ${percent}% (${progress.timemark}) - Speed: ${progress.currentKbps || 0}kbps`);
             
-            // Update progress in database
-            try {
-              await client.query(
-                'UPDATE videos SET processing_progress = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-                [percent, videoId]
-              );
-            } catch (dbError) {
-              console.error('❌ Progress update error:', dbError);
+            // Update progress in database (throttled)
+            if (percent % 5 === 0) { // Update every 5%
+              try {
+                await client.query(
+                  'UPDATE videos SET processing_progress = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                  [percent, videoId]
+                );
+              } catch (dbError) {
+                console.error('❌ Progress update error:', dbError);
+              }
             }
           }
         })
@@ -471,18 +542,28 @@ app.get('/api/video/:videoId', async (req, res) => {
   }
 });
 
-// Get video segments
+// Get video segments with pagination
 app.get('/api/video/:videoId/segments', async (req, res) => {
   const { videoId } = req.params;
-  console.log(`📊 Getting segments for video: ${videoId}`);
+  const { page = 1, limit = 50 } = req.query;
+  
+  console.log(`📊 Getting segments for video: ${videoId} (page ${page})`);
 
   try {
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
     const result = await pool.query(
-      'SELECT * FROM segments WHERE video_id = $1 ORDER BY segment_number',
+      'SELECT * FROM segments WHERE video_id = $1 ORDER BY segment_number LIMIT $2 OFFSET $3',
+      [videoId, parseInt(limit), offset]
+    );
+
+    const countResult = await pool.query(
+      'SELECT COUNT(*) FROM segments WHERE video_id = $1',
       [videoId]
     );
 
-    console.log(`✅ Found ${result.rows.length} segments for video ${videoId}`);
+    const totalSegments = parseInt(countResult.rows[0].count);
+    console.log(`✅ Found ${result.rows.length}/${totalSegments} segments for video ${videoId}`);
 
     const segments = result.rows.map(segment => ({
       id: segment.id,
@@ -497,7 +578,9 @@ app.get('/api/video/:videoId/segments', async (req, res) => {
     res.json({
       success: true,
       videoId,
-      totalSegments: result.rows.length,
+      totalSegments,
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(totalSegments / parseInt(limit)),
       segments
     });
 
@@ -552,12 +635,24 @@ app.get('/api/videos/:seriesId/:episodeNumber', async (req, res) => {
   }
 });
 
-// Update watch progress
+// Update watch progress with proper validation
 app.post('/api/progress', async (req, res) => {
   const { userId, videoId, progress, duration } = req.body;
-  const percentage = duration > 0 ? (progress / duration) * 100 : 0;
+  
+  // Validate input data
+  if (!userId || !videoId || progress === undefined || duration === undefined) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required fields: userId, videoId, progress, duration'
+    });
+  }
 
-  console.log(`📊 Updating progress: User ${userId}, Video ${videoId}, ${percentage.toFixed(1)}%`);
+  // Ensure duration is not null or zero
+  const validDuration = Math.max(duration || 1, 1); // Minimum 1 second
+  const validProgress = Math.max(progress || 0, 0);
+  const percentage = (validProgress / validDuration) * 100;
+
+  console.log(`📊 Updating progress: User ${userId}, Video ${videoId}, ${percentage.toFixed(1)}% (${validProgress}/${validDuration}s)`);
 
   try {
     await pool.query(
@@ -569,7 +664,7 @@ app.post('/api/progress', async (req, res) => {
          duration = EXCLUDED.duration,
          percentage = EXCLUDED.percentage,
          last_watched_at = CURRENT_TIMESTAMP`,
-      [userId, videoId, progress, duration, percentage]
+      [userId, videoId, validProgress, validDuration, percentage]
     );
 
     console.log('✅ Progress updated successfully');
@@ -627,9 +722,10 @@ app.get('/api/health', async (req, res) => {
       },
       ffmpeg: {
         path: process.env.FFMPEG_PATH || 'system',
-        status: 'configured'
+        status: 'configured',
+        gpuAcceleration: process.env.ENABLE_GPU === 'true'
       },
-      features: ['Video Upload', 'FFmpeg HLS Segmentation', 'PostgreSQL Storage', 'Watch Progress']
+      features: ['Video Upload', 'FFmpeg HLS Segmentation', 'PostgreSQL Storage', 'Watch Progress', 'GPU Acceleration', 'Progressive Loading']
     });
   } catch (error) {
     res.status(500).json({
@@ -670,7 +766,7 @@ app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
     error: 'Route not found',
-    message: 'AnimeStream Video Server - PostgreSQL + FFmpeg',
+    message: 'AnimeStream Video Server - PostgreSQL + FFmpeg + GPU',
     requestedUrl: req.originalUrl,
     method: req.method
   });
@@ -684,6 +780,7 @@ app.listen(PORT, () => {
   console.log(`📁 Videos: ${VIDEOS_DIR}`);
   console.log(`🐘 Database: PostgreSQL (${process.env.DB_NAME})`);
   console.log(`🎬 FFmpeg: ${process.env.FFMPEG_PATH || 'system path'}`);
+  console.log(`🚀 GPU Acceleration: ${process.env.ENABLE_GPU === 'true' ? 'ENABLED' : 'DISABLED'}`);
   console.log(`🌐 CORS enabled for: http://localhost:5173`);
   console.log(`📡 Ready to accept video uploads!`);
 });
