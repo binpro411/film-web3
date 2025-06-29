@@ -293,28 +293,33 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
 
   const renderSeries = () => (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-white">Quản Lý Series</h2>
-        <button
-          onClick={handleCreateSeries}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Thêm Series Mới</span>
-        </button>
-      </div>
+      {/* Header với nút Thêm Series - ĐẶT Ở TRÊN CÙNG */}
+      <div className="bg-gray-800 rounded-xl p-6 border-l-4 border-blue-500">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-2xl font-bold text-white">Quản Lý Series</h2>
+            <p className="text-gray-400 text-sm">Tạo và quản lý series phim hoạt hình</p>
+          </div>
+          <button
+            onClick={handleCreateSeries}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg flex items-center space-x-2 transition-colors shadow-lg hover:shadow-xl"
+          >
+            <Plus className="h-5 w-5" />
+            <span className="font-semibold">Thêm Series Mới</span>
+          </button>
+        </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Tìm kiếm series..."
-          className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg pl-10 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Tìm kiếm series..."
+            className="w-full bg-gray-700 text-white border border-gray-600 rounded-lg pl-10 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+        </div>
       </div>
 
       {/* Loading */}
@@ -339,147 +344,187 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Series Cards */}
         <div className="space-y-4">
-          <h3 className="text-lg font-semibold text-white">Danh Sách Series</h3>
-          {seriesData
-            .filter(series => 
-              series.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-              series.title_vietnamese.includes(searchQuery)
-            )
-            .map((series) => (
-              <div 
-                key={series.id} 
-                className={`bg-gray-800 rounded-xl p-4 cursor-pointer transition-all ${
-                  selectedSeries?.id === series.id ? 'ring-2 ring-blue-500' : 'hover:bg-gray-700'
-                }`}
-                onClick={() => setSelectedSeries(series)}
-              >
-                <div className="flex space-x-4">
-                  <img
-                    src={series.thumbnail}
-                    alt={series.title}
-                    className="w-16 h-24 object-cover rounded-lg"
-                  />
-                  <div className="flex-1">
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <h4 className="text-white font-semibold">{series.title}</h4>
-                        <p className="text-blue-300 text-sm">{series.title_vietnamese}</p>
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-white">Danh Sách Series ({seriesData.length})</h3>
+            <div className="text-sm text-gray-400">
+              {seriesData.filter(s => s.status === 'ongoing').length} đang phát sóng
+            </div>
+          </div>
+          
+          <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
+            {seriesData
+              .filter(series => 
+                series.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                series.title_vietnamese.includes(searchQuery)
+              )
+              .map((series) => (
+                <div 
+                  key={series.id} 
+                  className={`bg-gray-800 rounded-xl p-4 cursor-pointer transition-all hover:shadow-lg ${
+                    selectedSeries?.id === series.id 
+                      ? 'ring-2 ring-blue-500 bg-gray-750' 
+                      : 'hover:bg-gray-700'
+                  }`}
+                  onClick={() => setSelectedSeries(series)}
+                >
+                  <div className="flex space-x-4">
+                    <img
+                      src={series.thumbnail}
+                      alt={series.title}
+                      className="w-16 h-24 object-cover rounded-lg"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <h4 className="text-white font-semibold">{series.title}</h4>
+                          <p className="text-blue-300 text-sm">{series.title_vietnamese}</p>
+                        </div>
+                        <div className="flex space-x-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditSeries(series);
+                            }}
+                            className="bg-blue-600 hover:bg-blue-700 text-white p-1 rounded transition-colors"
+                            title="Chỉnh sửa"
+                          >
+                            <Edit className="h-3 w-3" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteSeries(series.id);
+                            }}
+                            className="bg-red-600 hover:bg-red-700 text-white p-1 rounded transition-colors"
+                            title="Xóa"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex space-x-1">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleEditSeries(series);
-                          }}
-                          className="bg-blue-600 hover:bg-blue-700 text-white p-1 rounded transition-colors"
-                        >
-                          <Edit className="h-3 w-3" />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteSeries(series.id);
-                          }}
-                          className="bg-red-600 hover:bg-red-700 text-white p-1 rounded transition-colors"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
+                      
+                      <div className="flex items-center space-x-4 text-sm text-gray-400 mb-2">
+                        <span>{series.year}</span>
+                        <div className="flex items-center space-x-1">
+                          <Star className="h-3 w-3 text-yellow-400 fill-current" />
+                          <span>{series.rating}</span>
+                        </div>
+                        <span className={`px-2 py-1 rounded text-xs ${
+                          series.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                          series.status === 'ongoing' ? 'bg-blue-500/20 text-blue-400' :
+                          'bg-gray-500/20 text-gray-400'
+                        }`}>
+                          {series.status === 'completed' ? 'Hoàn thành' :
+                           series.status === 'ongoing' ? 'Đang phát' : 'Sắp ra mắt'}
+                        </span>
                       </div>
-                    </div>
-                    
-                    <div className="flex items-center space-x-4 text-sm text-gray-400 mb-2">
-                      <span>{series.year}</span>
-                      <div className="flex items-center space-x-1">
-                        <Star className="h-3 w-3 text-yellow-400 fill-current" />
-                        <span>{series.rating}</span>
-                      </div>
-                      <span className={`px-2 py-1 rounded text-xs ${
-                        series.status === 'completed' ? 'bg-green-500/20 text-green-400' :
-                        series.status === 'ongoing' ? 'bg-blue-500/20 text-blue-400' :
-                        'bg-gray-500/20 text-gray-400'
-                      }`}>
-                        {series.status === 'completed' ? 'Hoàn thành' :
-                         series.status === 'ongoing' ? 'Đang phát' : 'Sắp ra mắt'}
-                      </span>
-                    </div>
 
-                    <div className="text-xs text-gray-400">
-                      {series.actual_episode_count}/{series.episode_count} tập • {series.videos_count} videos
+                      <div className="text-xs text-gray-400">
+                        {series.actual_episode_count}/{series.episode_count} tập • {series.videos_count} videos
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+          </div>
         </div>
 
         {/* Episodes Panel */}
-        <div className="bg-gray-800 rounded-xl p-6">
+        <div className="bg-gray-800 rounded-xl overflow-hidden">
           {selectedSeries ? (
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white">
-                  Tập Phim - {selectedSeries.title_vietnamese}
-                </h3>
-                <button
-                  onClick={handleCreateEpisode}
-                  className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm transition-colors flex items-center space-x-1"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Thêm Tập</span>
-                </button>
+            <div className="h-full flex flex-col">
+              {/* Header với nút Thêm Tập - ĐẶT Ở TRÊN CÙNG */}
+              <div className="bg-gray-700 p-6 border-b border-gray-600">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">
+                      Tập Phim - {selectedSeries.title_vietnamese}
+                    </h3>
+                    <p className="text-gray-400 text-sm">
+                      {episodesData.length} tập • {episodesData.filter(ep => ep.video_id).length} có video
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleCreateEpisode}
+                    className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm transition-colors flex items-center space-x-2 shadow-lg hover:shadow-xl"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span className="font-semibold">Thêm Tập</span>
+                  </button>
+                </div>
               </div>
 
-              <div className="space-y-3 max-h-96 overflow-y-auto">
-                {episodesData.map((episode) => (
-                  <div key={episode.id} className="bg-gray-700 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-white font-medium">Tập {episode.number}</h4>
-                      <div className="flex space-x-1">
-                        {!episode.video_id && (
-                          <button
-                            onClick={() => handleVideoUpload(episode)}
-                            className="bg-green-600 hover:bg-green-700 text-white p-1 rounded transition-colors"
-                            title="Upload Video"
-                          >
-                            <Upload className="h-3 w-3" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleEditEpisode(episode)}
-                          className="bg-blue-600 hover:bg-blue-700 text-white p-1 rounded transition-colors"
-                        >
-                          <Edit className="h-3 w-3" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteEpisode(episode.id)}
-                          className="bg-red-600 hover:bg-red-700 text-white p-1 rounded transition-colors"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
+              {/* Episodes List */}
+              <div className="flex-1 p-6">
+                <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
+                  {episodesData.length > 0 ? (
+                    episodesData.map((episode) => (
+                      <div key={episode.id} className="bg-gray-700 rounded-lg p-4 hover:bg-gray-600 transition-colors">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-white font-medium">Tập {episode.number}</h4>
+                          <div className="flex space-x-1">
+                            {!episode.video_id && (
+                              <button
+                                onClick={() => handleVideoUpload(episode)}
+                                className="bg-green-600 hover:bg-green-700 text-white p-1 rounded transition-colors"
+                                title="Upload Video"
+                              >
+                                <Upload className="h-3 w-3" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleEditEpisode(episode)}
+                              className="bg-blue-600 hover:bg-blue-700 text-white p-1 rounded transition-colors"
+                              title="Chỉnh sửa"
+                            >
+                              <Edit className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteEpisode(episode.id)}
+                              className="bg-red-600 hover:bg-red-700 text-white p-1 rounded transition-colors"
+                              title="Xóa"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <p className="text-gray-300 text-sm mb-1">{episode.title}</p>
+                        <p className="text-blue-300 text-xs mb-2">{episode.title_vietnamese}</p>
+                        
+                        <div className="flex items-center justify-between text-xs text-gray-400">
+                          <span>{episode.duration}</span>
+                          <div className="flex items-center space-x-2">
+                            <div className={`w-2 h-2 rounded-full ${
+                              episode.video_id ? 'bg-green-400' : 'bg-red-400'
+                            }`} />
+                            <span>{episode.video_id ? 'Có video' : 'Chưa có video'}</span>
+                          </div>
+                        </div>
                       </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8">
+                      <Video className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                      <p className="text-gray-400 mb-4">Chưa có tập phim nào</p>
+                      <button
+                        onClick={handleCreateEpisode}
+                        className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+                      >
+                        Thêm Tập Đầu Tiên
+                      </button>
                     </div>
-                    
-                    <p className="text-gray-300 text-sm mb-1">{episode.title}</p>
-                    <p className="text-blue-300 text-xs mb-2">{episode.title_vietnamese}</p>
-                    
-                    <div className="flex items-center justify-between text-xs text-gray-400">
-                      <span>{episode.duration}</span>
-                      <div className="flex items-center space-x-2">
-                        <div className={`w-2 h-2 rounded-full ${
-                          episode.video_id ? 'bg-green-400' : 'bg-red-400'
-                        }`} />
-                        <span>{episode.video_id ? 'Có video' : 'Chưa có video'}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  )}
+                </div>
               </div>
             </div>
           ) : (
-            <div className="text-center py-12">
-              <Video className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-white text-lg font-semibold mb-2">Chọn Series</h3>
-              <p className="text-gray-400">Chọn một series để xem và quản lý tập phim</p>
+            <div className="h-full flex items-center justify-center p-12">
+              <div className="text-center">
+                <Video className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-white text-lg font-semibold mb-2">Chọn Series</h3>
+                <p className="text-gray-400">Chọn một series để xem và quản lý tập phim</p>
+              </div>
             </div>
           )}
         </div>
