@@ -36,9 +36,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<any>(null);
   const initializingRef = useRef(false);
-  const resumeTimeSetRef = useRef(false);
-  const pendingResumeTimeRef = useRef<number>(0);
-  const shouldAutoPlayRef = useRef(false); // NEW: Track if should auto-play after resume
+  const resumeAppliedRef = useRef(false);
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -59,18 +57,6 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
   // Progress saving throttle
   const lastProgressSaveRef = useRef(0);
   const lastLocalProgressRef = useRef(0);
-
-  // Store resume time when it changes
-  useEffect(() => {
-    if (resumeTime > 0) {
-      pendingResumeTimeRef.current = resumeTime;
-      resumeTimeSetRef.current = false;
-      shouldAutoPlayRef.current = true; // NEW: Set auto-play flag when resume time is provided
-      console.log(`📋 New resume time received: ${resumeTime}s - Will auto-play`);
-    } else {
-      shouldAutoPlayRef.current = false;
-    }
-  }, [resumeTime]);
 
   // Throttled progress save function
   const saveProgress = useCallback(async (progress: number, duration: number) => {
@@ -109,50 +95,46 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
     }
   }, [seriesId, episodeId, updateWatchProgress]);
 
-  // Function to set resume time and auto-play when video is ready
-  const applyResumeTime = useCallback(async () => {
+  // SIMPLIFIED: Apply resume time when video is ready
+  const tryApplyResumeTime = useCallback(() => {
     const video = videoRef.current;
-    if (!video || resumeTimeSetRef.current || pendingResumeTimeRef.current <= 0) return;
+    if (!video || resumeAppliedRef.current || resumeTime <= 0) return;
 
-    if (video.duration > 0 && video.readyState >= 2) { // HAVE_CURRENT_DATA
-      const targetTime = Math.min(pendingResumeTimeRef.current, video.duration - 5); // Leave 5s buffer
+    // Check if video is ready enough for seeking
+    if (video.readyState >= 2 && video.duration > 0) { // HAVE_CURRENT_DATA
+      const targetTime = Math.min(resumeTime, video.duration - 2);
       
-      console.log(`⏭️ Applying resume time: ${targetTime}s (duration: ${video.duration}s)`);
+      console.log(`🎯 Applying resume time: ${targetTime}s (readyState: ${video.readyState}, duration: ${video.duration}s)`);
       
       try {
-        // Set the time first
+        // DIRECT APPROACH: Set time and play immediately
         video.currentTime = targetTime;
-        resumeTimeSetRef.current = true;
-        
-        // Update UI immediately
         setCurrentTime(targetTime);
+        resumeAppliedRef.current = true;
         
-        // Auto-play if this is a resume operation
-        if (shouldAutoPlayRef.current) {
-          console.log('🎬 Auto-playing video after resume...');
-          setLoadingStage('Đang phát từ vị trí đã xem...');
-          
-          // Wait a bit for seek to complete, then play
-          setTimeout(async () => {
-            try {
-              await video.play();
-              shouldAutoPlayRef.current = false; // Reset flag
-              console.log('✅ Auto-play successful');
-            } catch (playError) {
-              console.error('❌ Auto-play failed:', playError);
-              // Show play button if auto-play fails
-              setIsLoading(false);
-            }
-          }, 300);
-        }
-        
-        pendingResumeTimeRef.current = 0; // Clear pending time
+        // Auto-play immediately after seek
+        console.log('🎬 Starting auto-play...');
+        video.play().then(() => {
+          console.log('✅ Resume auto-play successful');
+          setIsLoading(false);
+        }).catch((playError) => {
+          console.error('❌ Auto-play failed:', playError);
+          setIsLoading(false);
+        });
         
       } catch (error) {
         console.error('❌ Failed to apply resume time:', error);
       }
     }
-  }, []);
+  }, [resumeTime]);
+
+  // Reset resume state when resumeTime changes
+  useEffect(() => {
+    if (resumeTime > 0) {
+      resumeAppliedRef.current = false;
+      console.log(`📋 New resume time received: ${resumeTime}s`);
+    }
+  }, [resumeTime]);
 
   // Initialize HLS Player - ONLY ONCE
   useEffect(() => {
@@ -167,7 +149,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
     setIsLoading(true);
     setPlayerReady(false);
     setRetryCount(0);
-    resumeTimeSetRef.current = false;
+    resumeAppliedRef.current = false;
 
     // Cleanup previous HLS instance
     if (hlsRef.current) {
@@ -305,23 +287,26 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       console.log('📊 Video metadata loaded:', {
         duration: video.duration,
         videoWidth: video.videoWidth,
-        videoHeight: video.videoHeight
+        videoHeight: video.videoHeight,
+        readyState: video.readyState
       });
       setDuration(video.duration);
       setLoadingStage('Metadata đã tải...');
-
-      // Apply resume time after metadata is loaded
+      
+      // Try to apply resume time after metadata
       setTimeout(() => {
-        applyResumeTime();
-      }, 500);
+        tryApplyResumeTime();
+      }, 200);
     };
 
     const handleLoadedData = () => {
       console.log('📊 Video data loaded, ready state:', video.readyState);
+      setLoadingStage('Dữ liệu đã tải...');
+      
       // Try to apply resume time when data is loaded
       setTimeout(() => {
-        applyResumeTime();
-      }, 200);
+        tryApplyResumeTime();
+      }, 100);
     };
 
     const handleCanPlay = () => {
@@ -330,9 +315,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       setLoadingStage('Có thể phát...');
       
       // Final attempt to apply resume time
-      setTimeout(() => {
-        applyResumeTime();
-      }, 100);
+      tryApplyResumeTime();
     };
 
     const handleTimeUpdate = () => {
@@ -456,7 +439,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       video.removeEventListener('seeking', handleSeeking);
       video.removeEventListener('seeked', handleSeeked);
     };
-  }, [src, applyResumeTime]); // Add applyResumeTime to dependencies
+  }, [src, tryApplyResumeTime]);
 
   // Auto-hide controls
   useEffect(() => {
@@ -585,7 +568,7 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
     setPlayerReady(false);
     setLoadingStage('Đang thử lại...');
     initializingRef.current = false;
-    resumeTimeSetRef.current = false;
+    resumeAppliedRef.current = false;
     
     const video = videoRef.current;
     if (video) {
@@ -635,9 +618,9 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
                 Đang thử lại... ({retryCount}/3)
               </p>
             )}
-            {pendingResumeTimeRef.current > 0 && (
+            {resumeTime > 0 && !resumeAppliedRef.current && (
               <p className="text-blue-400 text-xs mt-2">
-                Sẽ tiếp tục từ {formatTime(pendingResumeTimeRef.current)}
+                Sẽ tiếp tục từ {formatTime(resumeTime)}
               </p>
             )}
           </div>
@@ -681,9 +664,9 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
             <div className="flex items-center space-x-2 text-sm text-gray-300">
               <span>HLS.js Streaming</span>
               <div className={`w-2 h-2 rounded-full ${playerReady ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
-              {pendingResumeTimeRef.current > 0 && (
+              {resumeTime > 0 && !resumeAppliedRef.current && (
                 <span className="text-blue-400 text-xs">
-                  Resume: {formatTime(pendingResumeTimeRef.current)}
+                  Resume: {formatTime(resumeTime)}
                 </span>
               )}
             </div>
