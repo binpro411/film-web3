@@ -3,15 +3,20 @@ import cors from 'cors';
 import multer from 'multer';
 import fs from 'fs-extra';
 import path from 'path';
-import sqlite3 from 'sqlite3';
+import pg from 'pg';
 import { v4 as uuidv4 } from 'uuid';
 import { fileURLToPath } from 'url';
+import ffmpeg from 'fluent-ffmpeg';
+import dotenv from 'dotenv';
 
+dotenv.config();
+
+const { Pool } = pg;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 // Enhanced CORS configuration
 app.use(cors({
@@ -25,97 +30,82 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Directories
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-const SEGMENTS_DIR = path.join(__dirname, 'segments');
-const VIDEOS_DIR = path.join(__dirname, 'videos');
+const UPLOAD_DIR = path.resolve(__dirname, process.env.UPLOAD_DIR || 'uploads');
+const SEGMENTS_DIR = path.resolve(__dirname, process.env.SEGMENTS_DIR || 'segments');
+const VIDEOS_DIR = path.resolve(__dirname, process.env.VIDEOS_DIR || 'videos');
 
 // Ensure directories exist
 await fs.ensureDir(UPLOAD_DIR);
 await fs.ensureDir(SEGMENTS_DIR);
 await fs.ensureDir(VIDEOS_DIR);
 
-console.log('📁 Directories created:');
+console.log('📁 Directories initialized:');
 console.log(`   Upload: ${UPLOAD_DIR}`);
 console.log(`   Segments: ${SEGMENTS_DIR}`);
 console.log(`   Videos: ${VIDEOS_DIR}`);
 
+// PostgreSQL connection
+const pool = new Pool({
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+// Test database connection
+try {
+  const client = await pool.connect();
+  console.log('✅ Connected to PostgreSQL database');
+  client.release();
+} catch (error) {
+  console.error('❌ PostgreSQL connection error:', error);
+  console.log('💡 Please run: npm run setup-db');
+  process.exit(1);
+}
+
 // Serve static files with proper headers
 app.use('/segments', express.static(SEGMENTS_DIR, {
-  setHeaders: (res, path) => {
-    if (path.endsWith('.m3u8')) {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.m3u8')) {
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-    } else if (path.endsWith('.ts')) {
+    } else if (filePath.endsWith('.ts')) {
       res.setHeader('Content-Type', 'video/mp2t');
     }
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'no-cache');
   }
 }));
 
 app.use('/videos', express.static(VIDEOS_DIR));
 
-// Database setup with better error handling
-const dbPath = path.join(__dirname, 'streaming.db');
-console.log(`💾 Database path: ${dbPath}`);
+// Utility functions
+const createSafeFilename = (originalName) => {
+  const timestamp = Date.now();
+  const uuid = uuidv4().split('-')[0];
+  const ext = path.extname(originalName);
+  const baseName = path.basename(originalName, ext)
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .substring(0, 50);
+  return `${timestamp}_${uuid}_${baseName}${ext}`;
+};
 
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('❌ Database connection error:', err);
-  } else {
-    console.log('✅ Connected to SQLite database');
-  }
-});
-
-// Initialize database tables
-db.serialize(() => {
-  // Videos table
-  db.run(`CREATE TABLE IF NOT EXISTS videos (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    series_id TEXT NOT NULL,
-    episode_number INTEGER NOT NULL,
-    original_filename TEXT NOT NULL,
-    duration REAL NOT NULL,
-    file_size INTEGER NOT NULL,
-    video_path TEXT NOT NULL,
-    hls_manifest_path TEXT,
-    status TEXT DEFAULT 'processing',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`, (err) => {
-    if (err) console.error('Error creating videos table:', err);
-    else console.log('✅ Videos table ready');
+const getVideoMetadata = (videoPath) => {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(videoPath, (err, metadata) => {
+      if (err) {
+        reject(err);
+      } else {
+        const duration = metadata.format.duration || 0;
+        const size = metadata.format.size || 0;
+        resolve({ duration, size });
+      }
+    });
   });
-
-  // Segments table
-  db.run(`CREATE TABLE IF NOT EXISTS segments (
-    id TEXT PRIMARY KEY,
-    video_id TEXT NOT NULL,
-    segment_number INTEGER NOT NULL,
-    filename TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    duration REAL NOT NULL,
-    file_size INTEGER NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (video_id) REFERENCES videos (id)
-  )`, (err) => {
-    if (err) console.error('Error creating segments table:', err);
-    else console.log('✅ Segments table ready');
-  });
-
-  // Watch progress table
-  db.run(`CREATE TABLE IF NOT EXISTS watch_progress (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    video_id TEXT NOT NULL,
-    progress REAL NOT NULL,
-    duration REAL NOT NULL,
-    percentage REAL NOT NULL,
-    last_watched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(user_id, video_id)
-  )`, (err) => {
-    if (err) console.error('Error creating watch_progress table:', err);
-    else console.log('✅ Watch progress table ready');
-  });
-});
+};
 
 // Enhanced multer configuration
 const storage = multer.diskStorage({
@@ -123,23 +113,22 @@ const storage = multer.diskStorage({
     cb(null, UPLOAD_DIR);
   },
   filename: (req, file, cb) => {
-    const uniqueName = `${Date.now()}-${uuidv4()}-${file.originalname}`;
-    cb(null, uniqueName);
+    const safeFilename = createSafeFilename(file.originalname);
+    cb(null, safeFilename);
   }
 });
 
 const upload = multer({ 
   storage,
   limits: { 
-    fileSize: 5 * 1024 * 1024 * 1024, // 5GB limit
-    fieldSize: 50 * 1024 * 1024 // 50MB field size
+    fileSize: 10 * 1024 * 1024 * 1024, // 10GB limit
+    fieldSize: 50 * 1024 * 1024
   },
   fileFilter: (req, file, cb) => {
     console.log('📁 File upload attempt:', {
       fieldname: file.fieldname,
       originalname: file.originalname,
-      mimetype: file.mimetype,
-      size: file.size
+      mimetype: file.mimetype
     });
     
     if (file.mimetype.startsWith('video/')) {
@@ -153,112 +142,98 @@ const upload = multer({
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
-    name: 'Video Streaming Server',
-    version: '2.0.0',
+    name: 'AnimeStream Video Server',
+    version: '3.0.0',
     status: 'running',
     timestamp: new Date().toISOString(),
-    features: ['Video Upload', 'HLS Segmentation', 'Progressive Streaming', 'Watch Progress'],
+    database: 'PostgreSQL',
+    features: ['Video Upload', 'FFmpeg HLS Segmentation', 'Progressive Streaming', 'Watch Progress'],
     endpoints: {
       uploadVideo: 'POST /api/upload-video',
       getVideo: 'GET /api/video/:videoId',
       getSegments: 'GET /api/video/:videoId/segments',
-      getSegment: 'GET /segments/:filename',
+      getSegment: 'GET /segments/:videoId/:filename',
       updateProgress: 'POST /api/progress',
       getProgress: 'GET /api/progress/:userId/:videoId'
-    },
-    directories: {
-      upload: UPLOAD_DIR,
-      segments: SEGMENTS_DIR,
-      videos: VIDEOS_DIR
     }
   });
 });
 
-// Enhanced upload video endpoint
+// Upload video endpoint
 app.post('/api/upload-video', upload.single('video'), async (req, res) => {
-  console.log('🎬 Upload request received');
+  console.log('🎬 Video upload request received');
   console.log('📋 Request body:', req.body);
   console.log('📁 File info:', req.file);
 
+  const client = await pool.connect();
+  
   try {
     if (!req.file) {
-      console.error('❌ No file uploaded');
       return res.status(400).json({ 
         success: false,
-        error: 'No video file uploaded',
-        received: {
-          body: req.body,
-          files: req.files,
-          file: req.file
-        }
+        error: 'No video file uploaded'
       });
     }
 
     const { seriesId, episodeNumber, title } = req.body;
     
     if (!seriesId || !episodeNumber || !title) {
-      console.error('❌ Missing required fields');
       return res.status(400).json({ 
         success: false,
-        error: 'Missing required fields: seriesId, episodeNumber, title',
-        received: req.body
+        error: 'Missing required fields: seriesId, episodeNumber, title'
       });
     }
 
-    const videoId = uuidv4();
     const uploadedFile = req.file;
+    const videoPath = uploadedFile.path;
 
-    console.log(`📹 Processing video upload: ${title}`);
-    console.log(`📊 File details:`, {
-      originalname: uploadedFile.originalname,
-      mimetype: uploadedFile.mimetype,
-      size: uploadedFile.size,
-      path: uploadedFile.path
-    });
+    console.log(`📹 Processing video: ${title}`);
+    console.log(`📊 File: ${uploadedFile.originalname} (${uploadedFile.size} bytes)`);
 
-    // Check if file exists
-    const fileExists = await fs.pathExists(uploadedFile.path);
-    if (!fileExists) {
-      throw new Error(`Uploaded file not found at: ${uploadedFile.path}`);
-    }
+    // Get video metadata using FFmpeg
+    console.log('🔍 Analyzing video with FFmpeg...');
+    const { duration, size } = await getVideoMetadata(videoPath);
+    
+    console.log(`⏱️  Duration: ${duration}s, Size: ${size} bytes`);
 
-    // Get basic file info without ffprobe for now
-    const duration = 1800; // Default 30 minutes for demo
-    const fileSize = uploadedFile.size;
+    // Insert video record into PostgreSQL
+    const insertVideoQuery = `
+      INSERT INTO videos (
+        title, series_id, episode_number, original_filename, safe_filename,
+        duration, file_size, video_path, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id
+    `;
 
-    console.log(`💾 Saving to database...`);
+    const result = await client.query(insertVideoQuery, [
+      title,
+      seriesId,
+      parseInt(episodeNumber),
+      uploadedFile.originalname,
+      uploadedFile.filename,
+      duration,
+      size,
+      videoPath,
+      'processing'
+    ]);
 
-    // Save video info to database
-    await new Promise((resolve, reject) => {
-      db.run(
-        `INSERT INTO videos (id, title, series_id, episode_number, original_filename, duration, file_size, video_path, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'processing')`,
-        [videoId, title, seriesId, episodeNumber, uploadedFile.originalname, duration, fileSize, uploadedFile.path],
-        function(err) {
-          if (err) {
-            console.error('❌ Database insert error:', err);
-            reject(err);
-          } else {
-            console.log('✅ Video saved to database with ID:', videoId);
-            resolve(this);
-          }
-        }
-      );
-    });
+    const videoId = result.rows[0].id;
+    console.log(`💾 Video saved to PostgreSQL with ID: ${videoId}`);
 
-    // Start processing in background
-    console.log('🔄 Starting background processing...');
-    processVideoToSegments(videoId, uploadedFile.path, duration);
+    // Start FFmpeg processing in background
+    console.log('🔄 Starting FFmpeg segmentation...');
+    processVideoWithFFmpeg(videoId, videoPath, duration);
 
     res.json({
       success: true,
       videoId,
-      message: 'Video uploaded successfully. Processing segments...',
+      message: 'Video uploaded successfully. FFmpeg processing started...',
       metadata: {
         duration: Math.floor(duration),
-        fileSize,
-        estimatedSegments: Math.ceil(duration / 6),
-        originalFilename: uploadedFile.originalname
+        fileSize: size,
+        estimatedSegments: Math.ceil(duration / (process.env.SEGMENT_DURATION || 6)),
+        originalFilename: uploadedFile.originalname,
+        safeFilename: uploadedFile.filename
       }
     });
 
@@ -266,251 +241,342 @@ app.post('/api/upload-video', upload.single('video'), async (req, res) => {
     console.error('❌ Upload error:', error);
     res.status(500).json({ 
       success: false,
-      error: error.message,
-      stack: error.stack
+      error: error.message
     });
+  } finally {
+    client.release();
   }
 });
 
-// Simplified video processing (without FFmpeg for now)
-async function processVideoToSegments(videoId, videoPath, duration) {
+// FFmpeg video processing function
+async function processVideoWithFFmpeg(videoId, videoPath, duration) {
+  const client = await pool.connect();
+  
   try {
-    console.log(`🔄 Starting segmentation for video ${videoId}`);
+    console.log(`🎬 Starting FFmpeg processing for video ${videoId}`);
     
+    // Create segments directory for this video
     const videoSegmentsDir = path.join(SEGMENTS_DIR, videoId);
     await fs.ensureDir(videoSegmentsDir);
 
-    // Create a simple HLS manifest for demo
     const hlsManifestPath = path.join(videoSegmentsDir, 'playlist.m3u8');
-    
-    // Create demo segments (just copy the original file for now)
-    const segmentCount = Math.ceil(duration / 6);
-    console.log(`📊 Creating ${segmentCount} demo segments...`);
+    const segmentPattern = path.join(videoSegmentsDir, 'segment_%03d.ts');
 
-    // Create demo manifest
-    let manifest = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:6\n';
+    // Update status to processing
+    await client.query(
+      'UPDATE videos SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      ['processing', videoId]
+    );
+
+    // FFmpeg command for HLS segmentation
+    const segmentDuration = process.env.SEGMENT_DURATION || 6;
     
-    for (let i = 0; i < segmentCount; i++) {
-      const segmentFilename = `segment_${i.toString().padStart(3, '0')}.ts`;
-      const segmentPath = path.join(videoSegmentsDir, segmentFilename);
+    console.log(`🔧 FFmpeg command: Segmenting video into ${segmentDuration}s chunks`);
+    
+    await new Promise((resolve, reject) => {
+      ffmpeg(videoPath)
+        .outputOptions([
+          '-c:v libx264',           // Video codec
+          '-c:a aac',               // Audio codec
+          '-preset fast',           // Encoding speed
+          '-crf 23',                // Quality (lower = better)
+          '-sc_threshold 0',        // Disable scene change detection
+          '-g 48',                  // GOP size
+          '-keyint_min 48',         // Minimum keyframe interval
+          `-hls_time ${segmentDuration}`,  // Segment duration
+          '-hls_list_size 0',       // Keep all segments in playlist
+          '-hls_segment_type mpegts', // Segment format
+          `-hls_segment_filename ${segmentPattern}`, // Segment naming
+          '-f hls'                  // Output format
+        ])
+        .output(hlsManifestPath)
+        .on('start', (commandLine) => {
+          console.log('🎬 FFmpeg started:', commandLine);
+        })
+        .on('progress', async (progress) => {
+          const percent = Math.round(progress.percent || 0);
+          console.log(`⏳ Processing: ${percent}%`);
+          
+          // Update progress in database
+          await client.query(
+            'UPDATE videos SET processing_progress = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [percent, videoId]
+          );
+        })
+        .on('end', async () => {
+          console.log('✅ FFmpeg processing completed');
+          resolve();
+        })
+        .on('error', (err) => {
+          console.error('❌ FFmpeg error:', err);
+          reject(err);
+        })
+        .run();
+    });
+
+    // Read generated segments and save to database
+    console.log('📊 Reading generated segments...');
+    const segmentFiles = await fs.readdir(videoSegmentsDir);
+    const tsFiles = segmentFiles.filter(file => file.endsWith('.ts')).sort();
+
+    console.log(`📁 Found ${tsFiles.length} segment files`);
+
+    for (let i = 0; i < tsFiles.length; i++) {
+      const filename = tsFiles[i];
+      const filePath = path.join(videoSegmentsDir, filename);
+      const stats = await fs.stat(filePath);
       
-      // For demo, just create empty files
-      await fs.writeFile(segmentPath, Buffer.alloc(1024 * 100)); // 100KB demo file
-      
-      manifest += `#EXTINF:6.0,\n${segmentFilename}\n`;
-      
-      // Save segment info to database
-      await new Promise((resolve, reject) => {
-        db.run(
-          `INSERT INTO segments (id, video_id, segment_number, filename, file_path, duration, file_size)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [uuidv4(), videoId, i + 1, segmentFilename, segmentPath, 6.0, 1024 * 100],
-          function(err) {
-            if (err) reject(err);
-            else resolve(this);
-          }
-        );
-      });
+      // Calculate segment duration (approximate)
+      const segmentDuration = i === tsFiles.length - 1 
+        ? duration - (i * segmentDuration) // Last segment might be shorter
+        : segmentDuration;
+
+      await client.query(
+        `INSERT INTO segments (video_id, segment_number, filename, file_path, duration, file_size)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [videoId, i + 1, filename, filePath, segmentDuration, stats.size]
+      );
     }
-    
-    manifest += '#EXT-X-ENDLIST\n';
-    await fs.writeFile(hlsManifestPath, manifest);
 
-    console.log(`✅ Demo segmentation completed for ${videoId}`);
-    console.log(`📁 Manifest created: ${hlsManifestPath}`);
-    
-    // Update video status
-    await updateVideoStatus(videoId, 'completed', hlsManifestPath);
+    // Update video status to completed
+    await client.query(
+      `UPDATE videos SET 
+        status = $1, 
+        hls_manifest_path = $2, 
+        total_segments = $3,
+        processing_progress = 100,
+        updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $4`,
+      ['completed', hlsManifestPath, tsFiles.length, videoId]
+    );
+
+    console.log(`🎉 Video ${videoId} processing completed successfully!`);
+    console.log(`📁 HLS manifest: ${hlsManifestPath}`);
+    console.log(`📊 Total segments: ${tsFiles.length}`);
 
   } catch (error) {
-    console.error('❌ Segmentation error:', error);
-    await updateVideoStatus(videoId, 'failed');
+    console.error('❌ FFmpeg processing error:', error);
+    
+    // Update status to failed
+    await client.query(
+      'UPDATE videos SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      ['failed', videoId]
+    );
+  } finally {
+    client.release();
   }
 }
 
-// Update video status
-async function updateVideoStatus(videoId, status, hlsManifestPath = null) {
-  return new Promise((resolve, reject) => {
-    const query = hlsManifestPath 
-      ? `UPDATE videos SET status = ?, hls_manifest_path = ? WHERE id = ?`
-      : `UPDATE videos SET status = ? WHERE id = ?`;
-    
-    const params = hlsManifestPath 
-      ? [status, hlsManifestPath, videoId]
-      : [status, videoId];
-
-    db.run(query, params, function(err) {
-      if (err) {
-        console.error('❌ Status update error:', err);
-        reject(err);
-      } else {
-        console.log(`✅ Video ${videoId} status updated to: ${status}`);
-        resolve(this);
-      }
-    });
-  });
-}
-
 // Get video info
-app.get('/api/video/:videoId', (req, res) => {
+app.get('/api/video/:videoId', async (req, res) => {
   const { videoId } = req.params;
   console.log(`📹 Getting video info for: ${videoId}`);
 
-  db.get(
-    `SELECT * FROM videos WHERE id = ?`,
-    [videoId],
-    (err, video) => {
-      if (err) {
-        console.error('❌ Database error:', err);
-        return res.status(500).json({ success: false, error: err.message });
-      }
-      if (!video) {
-        console.log(`❌ Video not found: ${videoId}`);
-        return res.status(404).json({ success: false, error: 'Video not found' });
-      }
+  try {
+    const result = await pool.query(
+      'SELECT * FROM videos WHERE id = $1',
+      [videoId]
+    );
 
-      console.log(`✅ Video found:`, video);
-
-      res.json({
-        success: true,
-        video: {
-          id: video.id,
-          title: video.title,
-          seriesId: video.series_id,
-          episodeNumber: video.episode_number,
-          duration: video.duration,
-          fileSize: video.file_size,
-          status: video.status,
-          hlsUrl: video.hls_manifest_path ? `/segments/${video.id}/playlist.m3u8` : null,
-          createdAt: video.created_at
-        }
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Video not found' 
       });
     }
-  );
+
+    const video = result.rows[0];
+    console.log(`✅ Video found: ${video.title} (${video.status})`);
+
+    res.json({
+      success: true,
+      video: {
+        id: video.id,
+        title: video.title,
+        seriesId: video.series_id,
+        episodeNumber: video.episode_number,
+        duration: video.duration,
+        fileSize: video.file_size,
+        status: video.status,
+        processingProgress: video.processing_progress,
+        totalSegments: video.total_segments,
+        hlsUrl: video.hls_manifest_path ? `/segments/${video.id}/playlist.m3u8` : null,
+        createdAt: video.created_at,
+        updatedAt: video.updated_at
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Database error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
 });
 
 // Get video segments
-app.get('/api/video/:videoId/segments', (req, res) => {
+app.get('/api/video/:videoId/segments', async (req, res) => {
   const { videoId } = req.params;
   console.log(`📊 Getting segments for video: ${videoId}`);
 
-  db.all(
-    `SELECT * FROM segments WHERE video_id = ? ORDER BY segment_number`,
-    [videoId],
-    (err, segments) => {
-      if (err) {
-        console.error('❌ Database error:', err);
-        return res.status(500).json({ success: false, error: err.message });
-      }
+  try {
+    const result = await pool.query(
+      'SELECT * FROM segments WHERE video_id = $1 ORDER BY segment_number',
+      [videoId]
+    );
 
-      console.log(`✅ Found ${segments.length} segments for video ${videoId}`);
+    console.log(`✅ Found ${result.rows.length} segments for video ${videoId}`);
 
-      const segmentList = segments.map(segment => ({
-        id: segment.id,
-        number: segment.segment_number,
-        filename: segment.filename,
-        url: `/segments/${videoId}/${segment.filename}`,
-        duration: segment.duration,
-        fileSize: segment.file_size
-      }));
+    const segments = result.rows.map(segment => ({
+      id: segment.id,
+      number: segment.segment_number,
+      filename: segment.filename,
+      url: `/segments/${videoId}/${segment.filename}`,
+      duration: segment.duration,
+      fileSize: segment.file_size,
+      createdAt: segment.created_at
+    }));
 
-      res.json({
-        success: true,
-        videoId,
-        totalSegments: segments.length,
-        segments: segmentList
-      });
-    }
-  );
+    res.json({
+      success: true,
+      videoId,
+      totalSegments: result.rows.length,
+      segments
+    });
+
+  } catch (error) {
+    console.error('❌ Database error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
 });
 
 // Get videos by series and episode
-app.get('/api/videos/:seriesId/:episodeNumber', (req, res) => {
+app.get('/api/videos/:seriesId/:episodeNumber', async (req, res) => {
   const { seriesId, episodeNumber } = req.params;
   console.log(`🔍 Looking for video: ${seriesId} episode ${episodeNumber}`);
 
-  db.get(
-    `SELECT * FROM videos WHERE series_id = ? AND episode_number = ? AND status = 'completed'`,
-    [seriesId, episodeNumber],
-    (err, video) => {
-      if (err) {
-        console.error('❌ Database error:', err);
-        return res.status(500).json({ success: false, error: err.message });
-      }
-      if (!video) {
-        console.log(`❌ No completed video found for ${seriesId} episode ${episodeNumber}`);
-        return res.status(404).json({ success: false, error: 'Video not found' });
-      }
+  try {
+    const result = await pool.query(
+      'SELECT * FROM videos WHERE series_id = $1 AND episode_number = $2 AND status = $3',
+      [seriesId, parseInt(episodeNumber), 'completed']
+    );
 
-      console.log(`✅ Found video:`, video);
-
-      res.json({
-        success: true,
-        video: {
-          id: video.id,
-          title: video.title,
-          duration: video.duration,
-          hlsUrl: `/segments/${video.id}/playlist.m3u8`,
-          status: video.status
-        }
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Video not found' 
       });
     }
-  );
+
+    const video = result.rows[0];
+    console.log(`✅ Found video: ${video.title}`);
+
+    res.json({
+      success: true,
+      video: {
+        id: video.id,
+        title: video.title,
+        duration: video.duration,
+        hlsUrl: `/segments/${video.id}/playlist.m3u8`,
+        status: video.status,
+        totalSegments: video.total_segments
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Database error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
 });
 
 // Update watch progress
-app.post('/api/progress', (req, res) => {
+app.post('/api/progress', async (req, res) => {
   const { userId, videoId, progress, duration } = req.body;
   const percentage = duration > 0 ? (progress / duration) * 100 : 0;
 
   console.log(`📊 Updating progress: User ${userId}, Video ${videoId}, ${percentage.toFixed(1)}%`);
 
-  db.run(
-    `INSERT OR REPLACE INTO watch_progress (id, user_id, video_id, progress, duration, percentage, last_watched_at)
-     VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-    [uuidv4(), userId, videoId, progress, duration, percentage],
-    function(err) {
-      if (err) {
-        console.error('❌ Progress update error:', err);
-        return res.status(500).json({ success: false, error: err.message });
-      }
-      console.log('✅ Progress updated successfully');
-      res.json({ success: true, message: 'Progress updated' });
-    }
-  );
+  try {
+    await pool.query(
+      `INSERT INTO watch_progress (user_id, video_id, progress, duration, percentage, last_watched_at)
+       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+       ON CONFLICT (user_id, video_id) 
+       DO UPDATE SET 
+         progress = EXCLUDED.progress,
+         duration = EXCLUDED.duration,
+         percentage = EXCLUDED.percentage,
+         last_watched_at = CURRENT_TIMESTAMP`,
+      [userId, videoId, progress, duration, percentage]
+    );
+
+    console.log('✅ Progress updated successfully');
+    res.json({ success: true, message: 'Progress updated' });
+
+  } catch (error) {
+    console.error('❌ Progress update error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
 });
 
 // Get watch progress
-app.get('/api/progress/:userId/:videoId', (req, res) => {
+app.get('/api/progress/:userId/:videoId', async (req, res) => {
   const { userId, videoId } = req.params;
 
-  db.get(
-    `SELECT * FROM watch_progress WHERE user_id = ? AND video_id = ?`,
-    [userId, videoId],
-    (err, progress) => {
-      if (err) {
-        console.error('❌ Progress fetch error:', err);
-        return res.status(500).json({ success: false, error: err.message });
-      }
-      
-      res.json({
-        success: true,
-        progress: progress || null
-      });
-    }
-  );
+  try {
+    const result = await pool.query(
+      'SELECT * FROM watch_progress WHERE user_id = $1 AND video_id = $2',
+      [userId, videoId]
+    );
+    
+    res.json({
+      success: true,
+      progress: result.rows[0] || null
+    });
+
+  } catch (error) {
+    console.error('❌ Progress fetch error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
 });
 
 // Health check
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    timestamp: new Date().toISOString(),
-    server: 'Video Streaming Server',
-    port: PORT,
-    database: 'SQLite',
-    features: ['Video Upload', 'Demo HLS Segmentation', 'Watch Progress']
-  });
+app.get('/api/health', async (req, res) => {
+  try {
+    // Test database connection
+    const dbResult = await pool.query('SELECT NOW()');
+    
+    res.json({ 
+      status: 'OK', 
+      timestamp: new Date().toISOString(),
+      server: 'AnimeStream Video Server',
+      version: '3.0.0',
+      port: PORT,
+      database: {
+        type: 'PostgreSQL',
+        status: 'connected',
+        timestamp: dbResult.rows[0].now
+      },
+      features: ['Video Upload', 'FFmpeg HLS Segmentation', 'PostgreSQL Storage', 'Watch Progress']
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'ERROR',
+      error: error.message
+    });
+  }
 });
 
 // Enhanced error handling middleware
@@ -521,7 +587,7 @@ app.use((error, req, res, next) => {
     if (error.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ 
         success: false,
-        error: 'File too large. Maximum size is 5GB.',
+        error: 'File too large. Maximum size is 10GB.',
         code: 'FILE_TOO_LARGE'
       });
     }
@@ -541,46 +607,31 @@ app.use((error, req, res, next) => {
 
 // 404 handler
 app.use('*', (req, res) => {
-  console.log(`❌ 404 - Route not found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({
     success: false,
     error: 'Route not found',
-    message: 'This is the Video Streaming Server backend',
+    message: 'AnimeStream Video Server - PostgreSQL + FFmpeg',
     requestedUrl: req.originalUrl,
-    method: req.method,
-    availableRoutes: [
-      'GET /',
-      'GET /api/health',
-      'POST /api/upload-video',
-      'GET /api/video/:videoId',
-      'GET /api/video/:videoId/segments',
-      'GET /api/videos/:seriesId/:episodeNumber',
-      'POST /api/progress',
-      'GET /api/progress/:userId/:videoId'
-    ]
+    method: req.method
   });
 });
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Video Streaming Server running on http://localhost:${PORT}`);
+  console.log(`🚀 AnimeStream Video Server running on http://localhost:${PORT}`);
   console.log(`📁 Upload: ${UPLOAD_DIR}`);
   console.log(`📁 Segments: ${SEGMENTS_DIR}`);
   console.log(`📁 Videos: ${VIDEOS_DIR}`);
-  console.log(`💾 Database: SQLite at ${dbPath}`);
+  console.log(`🐘 Database: PostgreSQL (${process.env.DB_NAME})`);
+  console.log(`🎬 FFmpeg: Ready for video processing`);
   console.log(`🌐 CORS enabled for: http://localhost:5173`);
   console.log(`📡 Ready to accept video uploads!`);
 });
 
 // Graceful shutdown
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('\n🛑 Shutting down server...');
-  db.close((err) => {
-    if (err) {
-      console.error('❌ Error closing database:', err);
-    } else {
-      console.log('✅ Database connection closed');
-    }
-    process.exit(0);
-  });
+  await pool.end();
+  console.log('✅ Database connections closed');
+  process.exit(0);
 });
