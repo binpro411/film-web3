@@ -63,6 +63,9 @@ ALTER USER postgres PASSWORD 'your_new_password';
 1. **Đổi lại file pg_hba.conf** từ `trust` về `md5`
 2. **Restart PostgreSQL service** lần nữa
 
+
+
+
 ## Phương pháp 3: Reinstall PostgreSQL (Nếu cần)
 
 1. **Uninstall PostgreSQL** từ Control Panel
