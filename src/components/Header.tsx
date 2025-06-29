@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Menu, X, Play, User } from 'lucide-react';
+import { Search, Menu, X, Play, User, Settings } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import UserMenu from './UserMenu';
 
@@ -7,16 +7,18 @@ interface HeaderProps {
   onSearch: (query: string) => void;
   onOpenAuth: () => void;
   onOpenVip: () => void;
+  onOpenAdmin?: () => void;
 }
 
 const Header: React.FC<HeaderProps> = ({ 
   onSearch, 
   onOpenAuth, 
-  onOpenVip
+  onOpenVip,
+  onOpenAdmin
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,6 +61,18 @@ const Header: React.FC<HeaderProps> = ({
               />
               <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
             </form>
+
+            {/* Admin Button - Only for Admin */}
+            {user?.isAdmin && onOpenAdmin && (
+              <button
+                onClick={onOpenAdmin}
+                className="flex items-center space-x-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg font-medium transition-colors"
+                title="Admin Panel"
+              >
+                <Settings className="h-4 w-4" />
+                <span className="hidden sm:inline">Admin</span>
+              </button>
+            )}
 
             {/* User Authentication */}
             {!isLoading && (
@@ -106,6 +120,20 @@ const Header: React.FC<HeaderProps> = ({
               <a href="#" className="text-gray-300 hover:text-blue-400 transition-colors">Phổ Biến</a>
               <a href="#" className="text-gray-300 hover:text-blue-400 transition-colors">Thể Loại</a>
               <a href="#" className="text-gray-300 hover:text-blue-400 transition-colors">Yêu Thích</a>
+              
+              {/* Admin Button Mobile */}
+              {user?.isAdmin && onOpenAdmin && (
+                <button
+                  onClick={() => {
+                    onOpenAdmin();
+                    setIsMenuOpen(false);
+                  }}
+                  className="text-left text-purple-400 hover:text-purple-300 transition-colors font-medium flex items-center space-x-2"
+                >
+                  <Settings className="h-4 w-4" />
+                  <span>Admin Panel</span>
+                </button>
+              )}
               
               {!isAuthenticated && (
                 <button

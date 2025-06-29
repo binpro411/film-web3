@@ -164,15 +164,6 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
           console.log('📋 HLS manifest parsed successfully');
           setPlayerReady(true);
           setLoadingStage('Manifest đã tải...');
-          
-          // Set resume time ONLY ONCE
-          if (resumeTime > 0 && !resumeTimeSetRef.current) {
-            console.log(`⏭️ Setting resume time: ${resumeTime}s`);
-            setTimeout(() => {
-              video.currentTime = resumeTime;
-              resumeTimeSetRef.current = true;
-            }, 500);
-          }
         });
 
         hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
@@ -240,13 +231,6 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
         video.src = src;
         setPlayerReady(true);
         setLoadingStage('Sử dụng HLS native...');
-        
-        if (resumeTime > 0 && !resumeTimeSetRef.current) {
-          setTimeout(() => {
-            video.currentTime = resumeTime;
-            resumeTimeSetRef.current = true;
-          }, 500);
-        }
       } else {
         console.error('❌ HLS not supported');
         setError('HLS streaming không được hỗ trợ trong trình duyệt này');
@@ -267,6 +251,15 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       setDuration(video.duration);
       setIsLoading(false);
       setLoadingStage('Metadata đã tải...');
+
+      // Set resume time AFTER metadata is loaded
+      if (resumeTime > 0 && !resumeTimeSetRef.current && video.duration > 0) {
+        console.log(`⏭️ Setting resume time: ${resumeTime}s`);
+        setTimeout(() => {
+          video.currentTime = resumeTime;
+          resumeTimeSetRef.current = true;
+        }, 500);
+      }
     };
 
     const handleTimeUpdate = () => {
@@ -399,18 +392,6 @@ const HLSVideoPlayer: React.FC<HLSVideoPlayerProps> = ({
       video.removeEventListener('seeked', handleSeeked);
     };
   }, [src]); // ONLY depend on src
-
-  // Set resume time separately to avoid re-initialization
-  useEffect(() => {
-    const video = videoRef.current;
-    if (video && playerReady && resumeTime > 0 && !resumeTimeSetRef.current) {
-      console.log(`⏭️ Setting resume time: ${resumeTime}s`);
-      setTimeout(() => {
-        video.currentTime = resumeTime;
-        resumeTimeSetRef.current = true;
-      }, 1000);
-    }
-  }, [playerReady, resumeTime]);
 
   // Auto-hide controls
   useEffect(() => {

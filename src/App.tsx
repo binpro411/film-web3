@@ -10,6 +10,7 @@ import EpisodePlayer from './components/EpisodePlayer';
 import AuthModal from './components/AuthModal';
 import VipModal from './components/VipModal';
 import PaymentModal from './components/PaymentModal';
+import AdminPanel from './components/AdminPanel';
 import Footer from './components/Footer';
 import { AuthProvider } from './contexts/AuthContext';
 import { movies } from './data/movies';
@@ -27,6 +28,7 @@ function AppContent() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isVipModalOpen, setIsVipModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   const [selectedVipPlan, setSelectedVipPlan] = useState<VipPlan | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -123,6 +125,10 @@ function AppContent() {
     setIsVipModalOpen(true);
   };
 
+  const handleOpenAdmin = () => {
+    setIsAdminPanelOpen(true);
+  };
+
   const handleSelectVipPlan = (plan: VipPlan) => {
     setSelectedVipPlan(plan);
     setIsVipModalOpen(false);
@@ -140,6 +146,7 @@ function AppContent() {
         onSearch={handleSearch} 
         onOpenAuth={handleOpenAuth} 
         onOpenVip={handleOpenVip}
+        onOpenAdmin={handleOpenAdmin}
       />
       
       <main className="pt-16">
@@ -238,6 +245,11 @@ function AppContent() {
         isOpen={isPaymentModalOpen}
         onClose={handleClosePayment}
         selectedPlan={selectedVipPlan}
+      />
+
+      <AdminPanel
+        isOpen={isAdminPanelOpen}
+        onClose={() => setIsAdminPanelOpen(false)}
       />
     </div>
   );
